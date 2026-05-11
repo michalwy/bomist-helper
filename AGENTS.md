@@ -10,10 +10,11 @@ Current main workflow:
 - select one order,
 - load its items,
 - enrich item rows with part data,
-- choose which item rows should produce labels,
-- print one label per selected item, optionally repeated by quantity.
+- choose which item rows from one or more orders should produce labels,
+- clear the shared print selection when needed,
+- print one label per selected item from the shared selection, optionally repeated by quantity.
 
-The app preserves selected UI state across page refreshes in browser `localStorage`, including the selected order, order filter text, selected item rows for the active order, and the "repeat by quantity" option.
+The app preserves selected UI state across page refreshes in browser `localStorage`, including the selected order, order filter text, selected item rows grouped by order, and the "repeat by quantity" option.
 
 ## Tech Stack
 

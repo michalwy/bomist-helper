@@ -4,6 +4,8 @@ const state = {
   selectedOrder: null,
   selectedItems: [],
   selectedItemKeys: new Set(),
+  itemsByOrderId: new Map(),
+  selectedItemKeysByOrderId: new Map(),
   partsById: new Map(),
   labelsById: new Map(),
   lotsById: new Map()
@@ -23,12 +25,14 @@ const defaultAppState = {
   orderSearch: "",
   repeatByQuantity: false,
   selectedItemOrderId: "",
-  selectedItemKeys: []
+  selectedItemKeys: [],
+  selectedItemKeysByOrderId: {}
 };
 
 const els = {
   connectionStatus: document.querySelector("#connectionStatus"),
   refreshButton: document.querySelector("#refreshButton"),
+  clearBasketButton: document.querySelector("#clearBasketButton"),
   printButton: document.querySelector("#printButton"),
   ordersCount: document.querySelector("#ordersCount"),
   orderSearch: document.querySelector("#orderSearch"),
@@ -77,14 +81,45 @@ function loadAppState() {
   }
 }
 
+function orderIdString(order) {
+  return String(getOrderId(order) || "");
+}
+
+function loadPersistedSelectionMap(appState = loadAppState()) {
+  const entries = appState.selectedItemKeysByOrderId && typeof appState.selectedItemKeysByOrderId === "object"
+    ? Object.entries(appState.selectedItemKeysByOrderId)
+    : [];
+  const selectionMap = new Map(
+    entries.map(([orderId, keys]) => [
+      String(orderId),
+      new Set(Array.isArray(keys) ? keys.map(String) : [])
+    ])
+  );
+
+  if (!selectionMap.size && appState.selectedItemOrderId && Array.isArray(appState.selectedItemKeys)) {
+    selectionMap.set(String(appState.selectedItemOrderId), new Set(appState.selectedItemKeys.map(String)));
+  }
+
+  return selectionMap;
+}
+
+function serializeSelectionMap() {
+  return Object.fromEntries(
+    [...state.selectedItemKeysByOrderId.entries()]
+      .map(([orderId, keys]) => [orderId, [...keys]])
+  );
+}
+
 function getCurrentAppState() {
-  const selectedOrderId = state.selectedOrder ? String(getOrderId(state.selectedOrder) || "") : "";
+  const selectedOrderId = state.selectedOrder ? orderIdString(state.selectedOrder) : "";
+  const selectedItemKeysByOrderId = serializeSelectionMap();
   return {
     selectedOrderId,
     orderSearch: els.orderSearch.value,
     repeatByQuantity: els.repeatByQuantity.checked,
     selectedItemOrderId: selectedOrderId,
-    selectedItemKeys: [...state.selectedItemKeys]
+    selectedItemKeys: selectedOrderId ? [...(state.selectedItemKeysByOrderId.get(selectedOrderId) || new Set())] : [],
+    selectedItemKeysByOrderId
   };
 }
 
@@ -95,6 +130,7 @@ function saveAppState(appState = getCurrentAppState()) {
 function applyAppState(appState) {
   els.orderSearch.value = appState.orderSearch || "";
   els.repeatByQuantity.checked = Boolean(appState.repeatByQuantity);
+  state.selectedItemKeysByOrderId = loadPersistedSelectionMap(appState);
 }
 
 function applySettings(settings) {
@@ -543,6 +579,8 @@ async function loadOrders() {
   setConnection("Connecting to BOMist...");
   els.ordersList.innerHTML = `<div class="hint">Loading orders...</div>`;
   els.printButton.disabled = true;
+  state.itemsByOrderId = new Map();
+  state.selectedItems = [];
 
   try {
     await bomistFetch("/");
@@ -562,6 +600,7 @@ async function loadOrders() {
     await loadLabels();
     await loadLots();
     filterOrders({ persist: false });
+    await loadPersistedSelectedOrderItems();
     if (selectedOrderId) {
       await selectOrder(selectedOrderId);
     } else {
@@ -574,6 +613,42 @@ async function loadOrders() {
     clearSelection();
     renderOrders();
     setConnection(`No connection or incompatible endpoint: ${error.message}`, "status-error");
+  }
+}
+
+async function loadOrderItems(order) {
+  const orderId = orderIdString(order);
+  if (state.itemsByOrderId.has(orderId)) return state.itemsByOrderId.get(orderId);
+
+  let detailsPayload = order;
+  const existingItems = getItems(order);
+
+  if (!existingItems.length && orderId) {
+    const path = readSettings().detailsEndpoint.replace("{id}", encodeURIComponent(orderId));
+    try {
+      detailsPayload = await bomistFetch(path);
+    } catch {
+      detailsPayload = order;
+    }
+  }
+
+  const rawItems = Array.isArray(detailsPayload) ? unwrapCollection(detailsPayload) : getItems(detailsPayload);
+  const normalizedItems = rawItems.map((item, index) => normalizeItem(item, index, order));
+  state.itemsByOrderId.set(orderId, normalizedItems);
+  return normalizedItems;
+}
+
+async function loadPersistedSelectedOrderItems() {
+  const orderIds = [...state.selectedItemKeysByOrderId.keys()].filter(orderId => {
+    const selectedKeys = state.selectedItemKeysByOrderId.get(orderId);
+    return selectedKeys && selectedKeys.size;
+  });
+
+  for (const orderId of orderIds) {
+    const order = state.orders.find(item => orderIdString(item) === orderId);
+    if (order) {
+      await loadOrderItems(order);
+    }
   }
 }
 
@@ -651,10 +726,15 @@ function renderOrders() {
 
   els.ordersList.innerHTML = state.filteredOrders.map(order => {
     const id = getOrderId(order);
+    const orderId = String(id || "");
     const active = state.selectedOrder && String(getOrderId(state.selectedOrder)) === String(id) ? " active" : "";
+    const selectedCount = selectedItemsForOrder(orderId).length;
     return `
-      <button class="order-row${active}" data-order-id="${escapeHtml(String(id || ""))}">
-        <strong>${escapeHtml(getOrderTitle(order))}</strong>
+      <button class="order-row${active}" data-order-id="${escapeHtml(orderId)}">
+        <span class="order-row-title">
+          <strong>${escapeHtml(getOrderTitle(order))}</strong>
+          ${selectedCount ? `<span class="order-selection-count">${selectedCount}</span>` : ""}
+        </span>
         <span>${escapeHtml(getOrderMeta(order) || String(id || ""))}</span>
       </button>
     `;
@@ -682,20 +762,8 @@ async function selectOrder(orderId, { persist = true } = {}) {
   }
 
   state.selectedOrder = order;
-  let detailsPayload = order;
-  const existingItems = getItems(order);
+  state.selectedItems = await loadOrderItems(order);
 
-  if (!existingItems.length && orderId) {
-    const path = readSettings().detailsEndpoint.replace("{id}", encodeURIComponent(orderId));
-    try {
-      detailsPayload = await bomistFetch(path);
-    } catch {
-      detailsPayload = order;
-    }
-  }
-
-  const rawItems = Array.isArray(detailsPayload) ? unwrapCollection(detailsPayload) : getItems(detailsPayload);
-  state.selectedItems = rawItems.map((item, index) => normalizeItem(item, index, order));
   restoreItemSelection(order);
   renderOrders();
   renderDetails(order);
@@ -703,17 +771,18 @@ async function selectOrder(orderId, { persist = true } = {}) {
 }
 
 function restoreItemSelection(order) {
-  const appState = loadAppState();
-  const orderId = String(getOrderId(order) || "");
-  const persistedKeys = Array.isArray(appState.selectedItemKeys) ? appState.selectedItemKeys.map(String) : [];
+  const orderId = orderIdString(order);
+  const persistedKeys = state.selectedItemKeysByOrderId.get(orderId);
   const validKeys = new Set(state.selectedItems.map(item => item.key));
 
-  if (appState.selectedItemOrderId === orderId && Array.isArray(appState.selectedItemKeys)) {
-    state.selectedItemKeys = new Set(persistedKeys.filter(key => validKeys.has(key)));
+  if (persistedKeys) {
+    state.selectedItemKeys = new Set([...persistedKeys].filter(key => validKeys.has(key)));
+    state.selectedItemKeysByOrderId.set(orderId, new Set(state.selectedItemKeys));
     return;
   }
 
   state.selectedItemKeys = new Set(state.selectedItems.map(item => item.key));
+  state.selectedItemKeysByOrderId.set(orderId, new Set(state.selectedItemKeys));
 }
 
 function renderDetails(order) {
@@ -749,7 +818,18 @@ function renderDetails(order) {
 }
 
 function selectedItems() {
-  return state.selectedItems.filter(item => state.selectedItemKeys.has(item.key));
+  if (!state.selectedOrder) return [];
+  return selectedItemsForOrder(orderIdString(state.selectedOrder));
+}
+
+function selectedItemsForOrder(orderId) {
+  const items = state.itemsByOrderId.get(String(orderId)) || [];
+  const selectedKeys = state.selectedItemKeysByOrderId.get(String(orderId)) || new Set();
+  return items.filter(item => selectedKeys.has(item.key));
+}
+
+function allSelectedItems() {
+  return [...state.selectedItemKeysByOrderId.keys()].flatMap(orderId => selectedItemsForOrder(orderId));
 }
 
 function updateSelectionSummary() {
@@ -757,8 +837,10 @@ function updateSelectionSummary() {
 
   const selectedCount = selectedItems().length;
   const totalCount = state.selectedItems.length;
-  els.selectedItemsCount.textContent = `${selectedCount} of ${totalCount} selected`;
-  els.printButton.disabled = selectedCount === 0;
+  const allSelectedCount = allSelectedItems().length;
+  els.selectedItemsCount.textContent = `${selectedCount} of ${totalCount} selected here, ${allSelectedCount} total`;
+  els.printButton.disabled = allSelectedCount === 0;
+  els.clearBasketButton.disabled = allSelectedCount === 0;
 }
 
 function setSelectedItems(predicate) {
@@ -767,7 +849,28 @@ function setSelectedItems(predicate) {
       .filter(predicate)
       .map(item => item.key)
   );
+  if (state.selectedOrder) {
+    state.selectedItemKeysByOrderId.set(orderIdString(state.selectedOrder), new Set(state.selectedItemKeys));
+  }
   renderDetails(state.selectedOrder);
+  renderOrders();
+  saveAppState();
+}
+
+function clearPrintBasket() {
+  state.selectedItemKeys = new Set();
+  state.selectedItemKeysByOrderId = new Map(
+    [...state.selectedItemKeysByOrderId.keys()].map(orderId => [orderId, new Set()])
+  );
+
+  if (state.selectedOrder) {
+    state.selectedItemKeysByOrderId.set(orderIdString(state.selectedOrder), new Set());
+    renderDetails(state.selectedOrder);
+  } else {
+    updateSelectionSummary();
+  }
+
+  renderOrders();
   saveAppState();
 }
 
@@ -791,7 +894,7 @@ function buildLabels() {
 
   const labels = [];
 
-  for (const item of selectedItems()) {
+  for (const item of allSelectedItems()) {
     const count = els.repeatByQuantity.checked ? Math.max(1, Math.min(500, Math.round(item.quantity))) : 1;
     const partDetails = [
       item.category ? `<span class="label-category">${escapeHtml(item.category)}</span>` : "",
@@ -828,12 +931,13 @@ function buildLabels() {
 }
 
 function printLabels() {
-  if (!selectedItems().length) return;
+  if (!allSelectedItems().length) return;
   buildLabels();
   window.print();
 }
 
 els.refreshButton.addEventListener("click", loadOrders);
+els.clearBasketButton.addEventListener("click", clearPrintBasket);
 els.printButton.addEventListener("click", printLabels);
 els.orderSearch.addEventListener("input", filterOrders);
 els.repeatByQuantity.addEventListener("change", () => saveAppState());
@@ -846,7 +950,7 @@ els.ordersList.addEventListener("click", event => {
 });
 els.itemsTable.addEventListener("change", event => {
   const checkbox = event.target.closest('input[type="checkbox"][data-item-key]');
-  if (!checkbox) return;
+  if (!checkbox || !state.selectedOrder) return;
 
   if (checkbox.checked) {
     state.selectedItemKeys.add(checkbox.dataset.itemKey);
@@ -854,7 +958,9 @@ els.itemsTable.addEventListener("change", event => {
     state.selectedItemKeys.delete(checkbox.dataset.itemKey);
   }
 
+  state.selectedItemKeysByOrderId.set(orderIdString(state.selectedOrder), new Set(state.selectedItemKeys));
   updateSelectionSummary();
+  renderOrders();
   saveAppState();
 });
 els.saveSettingsButton.addEventListener("click", () => {

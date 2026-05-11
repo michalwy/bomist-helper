@@ -4,7 +4,7 @@ Local web app for working with the BOMist API. The first implemented workflow in
 
 - loading the order list from local BOMist,
 - showing the items of the selected order,
-- preparing printable labels for each item.
+- preparing a shared print selection from one or more orders.
 
 ## Run Locally
 
@@ -34,4 +34,4 @@ The `Integration` panel lets you change the API URL and endpoints without editin
 
 ## Label Printing
 
-After selecting an order, use the item checkboxes to choose which rows should produce labels. The quick selection buttons can select all rows, no rows, or only rows with LOT data. The `Print labels` button opens the print view for selected rows, with an option to repeat labels by item quantity.
+After selecting an order, use the item checkboxes to choose which rows should produce labels. You can move between orders and keep building one shared print selection; the order list shows how many loaded rows are selected for each order. The quick selection buttons can select all rows, no rows, or only rows with LOT data for the current order. Use `Clear basket` to remove all selected rows from all orders. The `Print labels` button opens the print view for all selected rows, with an option to repeat labels by item quantity.

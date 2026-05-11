@@ -15,6 +15,7 @@
         </div>
         <div class="topbar-actions">
           <button id="refreshButton" class="icon-button" title="Refresh data">⟳</button>
+          <button id="clearBasketButton" class="secondary-button" type="button" disabled>Clear basket</button>
           <button id="printButton" class="primary-button" disabled>Print labels</button>
         </div>
       </header>
@@ -34,7 +35,7 @@
         <section class="details">
           <div id="emptyState" class="empty-state">
             <h2>Select an order</h2>
-            <p>The selected order items will appear here and can be printed as labels.</p>
+            <p>Choose items from one or more orders, then print all selected labels together.</p>
           </div>
 
           <div id="orderDetails" class="order-details hidden">
@@ -50,7 +51,7 @@
                   Repeat by quantity
                 </label>
                 <div class="selection-tools" aria-label="Label item selection">
-                  <span id="selectedItemsCount">0 selected</span>
+                  <span id="selectedItemsCount">0 selected here, 0 total</span>
                   <div class="selection-actions">
                     <button id="selectAllItemsButton" class="text-button" type="button">All</button>
                     <button id="selectNoItemsButton" class="text-button" type="button">None</button>
