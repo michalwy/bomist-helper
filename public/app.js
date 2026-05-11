@@ -3,7 +3,8 @@ const state = {
   filteredOrders: [],
   selectedOrder: null,
   selectedItems: [],
-  partsById: new Map()
+  partsById: new Map(),
+  lotsById: new Map()
 };
 
 const settingsKey = "bomist-helper-settings";
@@ -135,7 +136,7 @@ function deepFind(obj, keys) {
 function displayValue(value) {
   if (value === undefined || value === null || value === "") return "";
   if (typeof value === "object") {
-    return value.name || value.code || value.id || "";
+    return value.name || value.code || value.number || value.id || "";
   }
   return String(value);
 }
@@ -194,38 +195,137 @@ function quantityValue(value) {
   return Number.isFinite(numeric) ? numeric : 1;
 }
 
+function numericValue(value) {
+  if (typeof value === "number") return value;
+  if (value && typeof value === "object") {
+    return numericValue(value.value ?? value.amount ?? value.price ?? value.total);
+  }
+  if (typeof value === "string") {
+    const normalized = value.replace(/\s/g, "").replace(",", ".");
+    const numeric = Number(normalized);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+  return null;
+}
+
+function formatMoney(value, currency = "") {
+  if (value === undefined || value === null || value === "") return "";
+  const numeric = numericValue(value);
+  if (numeric === null) return displayValue(value);
+  if (currency) {
+    try {
+      return new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency,
+        currencyDisplay: "narrowSymbol"
+      }).format(numeric);
+    } catch {
+      return `${numeric.toFixed(2)} ${currency}`;
+    }
+  }
+  return numeric.toFixed(2);
+}
+
+function getLotDetails(value) {
+  if (!value) return { number: "", comment: "" };
+  if (typeof value !== "object") {
+    return getLotDetails(state.lotsById.get(value));
+  }
+
+  const lot = value.lot || value;
+
+  const number = displayValue(
+    lot.number ||
+      lot.lotNumber ||
+      lot.code ||
+      lot.altCode ||
+      lot.name ||
+      lot.batchNumber ||
+      lot.batch
+  );
+  const comment = displayValue(
+    lot.comment ||
+      lot.comments ||
+      lot.note ||
+      lot.notes ||
+      lot.description
+  );
+
+  return { number, comment };
+}
+
+function firstLotDetails(...values) {
+  for (const value of values) {
+    const details = getLotDetails(value);
+    if (details.number || details.comment) return details;
+  }
+  return { number: "", comment: "" };
+}
+
 function normalizeItem(item, index, order = state.selectedOrder) {
   const purchaseOrderItem = item.purchase_order_item || item.purchaseOrderItem || item;
   const partId = purchaseOrderItem.part || item.part;
   const knownPart = state.partsById.get(partId) || {};
   const part = knownPart.part || item.partSnapshot || item.purchaseItem || item.product || {};
   const quote = item.quote || item.supplierPart || {};
-  const name =
+  const description =
     part.description ||
     part.value ||
-    part.mpn ||
-    part.ipn ||
-    purchaseOrderItem.product?.sku ||
-    partId ||
+    purchaseOrderItem.product?.description ||
+    deepFind(item, ["description", "name"]) ||
     `Item ${index + 1}`;
-  const mpn =
+  const catalogNumber =
     part.mpn ||
+    part.manufacturerPartNumber ||
+    part.partNumber ||
     part.ipn ||
     purchaseOrderItem.product?.sku ||
-    deepFind(item, ["mpn", "manufacturerPartNumber", "sku", "partNumber", "ipn"]);
+    deepFind(item, ["mpn", "manufacturerPartNumber", "catalogNumber", "sku", "partNumber", "ipn"]) ||
+    partId;
   const supplier = deepFind(item, ["supplier", "supplierName", "vendor"]) || deepFind(quote, ["supplier", "supplierName", "vendor"]);
   const orderData = order?.purchase_order || order?.purchaseOrder || {};
   const orderSupplier = orderData.supplier?.name || orderData.supplierName || order?.supplierName || "";
   const quantity = deepFind(item, ["quantity", "qty", "orderedQuantity", "amount"]) || purchaseOrderItem.pricing?.qty || 1;
+  const normalizedQuantity = quantityValue(quantity);
+  const pricing = purchaseOrderItem.pricing || item.pricing || quote.pricing || {};
+  const currency =
+    displayValue(pricing.currency || pricing.currencyCode || item.currency || item.currencyCode || quote.currency || quote.currencyCode);
+  const price =
+    pricing.unitPrice ??
+    pricing.price ??
+    pricing.unitCost ??
+    pricing.cost ??
+    item.unitPrice ??
+    item.price ??
+    quote.unitPrice ??
+    quote.price;
+  const explicitValue =
+    pricing.total ??
+    pricing.totalPrice ??
+    pricing.extendedPrice ??
+    pricing.value ??
+    item.total ??
+    item.totalPrice ??
+    item.extendedPrice;
+  const unitPrice = numericValue(price);
+  const computedValue = numericValue(explicitValue) === null && unitPrice !== null ? unitPrice * normalizedQuantity : explicitValue;
+  const lotDetails = firstLotDetails(purchaseOrderItem.lot, item.lot, deepFind(item, ["lot", "batch"]));
   const status = purchaseOrderItem.status || deepFind(item, ["status", "state", "receivedStatus"]) || "";
 
   return {
     raw: item,
     index: index + 1,
-    name: String(name),
-    mpn: mpn ? String(mpn) : "",
+    name: String(description),
+    description: String(description),
+    catalogNumber: catalogNumber ? String(catalogNumber) : "",
+    mpn: catalogNumber ? String(catalogNumber) : "",
     supplier: displayValue(supplier) || displayValue(orderSupplier),
-    quantity: quantityValue(quantity),
+    quantity: normalizedQuantity,
+    price: formatMoney(price, currency),
+    value: formatMoney(computedValue, currency),
+    lot: [lotDetails.number, lotDetails.comment].filter(Boolean).join(" - "),
+    lotNumber: lotDetails.number,
+    lotComment: lotDetails.comment,
     status: status ? String(status) : ""
   };
 }
@@ -256,6 +356,7 @@ async function loadOrders() {
 
     state.orders = unwrapCollection(payload);
     await loadParts();
+    await loadLots();
     filterOrders();
     setConnection(`Connected to BOMist. Loaded orders: ${state.orders.length}.`, "status-ok");
   } catch (error) {
@@ -275,6 +376,18 @@ async function loadParts() {
     state.partsById = new Map(parts.map(part => [part.part?.id || part.id || part._id, part]).filter(([id]) => id));
   } catch {
     state.partsById = new Map();
+  }
+}
+
+async function loadLots() {
+  if (state.lotsById.size) return;
+
+  try {
+    const payload = await bomistFetch("/lots?limit=5000");
+    const lots = unwrapCollection(payload);
+    state.lotsById = new Map(lots.map(lot => [lot.lot?.id || lot.id || lot._id, lot]).filter(([id]) => id));
+  } catch {
+    state.lotsById = new Map();
   }
 }
 
@@ -337,7 +450,7 @@ function renderDetails(order) {
   els.selectedOrderMeta.textContent = getOrderMeta(order) || getOrderId(order) || "";
 
   if (!state.selectedItems.length) {
-    els.itemsTable.innerHTML = `<tr><td colspan="6">No items found in this order. Check the details endpoint or the data structure in Swagger.</td></tr>`;
+    els.itemsTable.innerHTML = `<tr><td colspan="7">No items found in this order. Check the details endpoint or the data structure in Swagger.</td></tr>`;
     els.printButton.disabled = true;
     return;
   }
@@ -345,10 +458,11 @@ function renderDetails(order) {
   els.itemsTable.innerHTML = state.selectedItems.map(item => `
     <tr>
       <td>${item.index}</td>
-      <td><span class="item-name"><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(getOrderTitle(order))}</small></span></td>
-      <td>${escapeHtml(item.mpn || "-")}</td>
-      <td>${escapeHtml(item.supplier || "-")}</td>
-      <td>${escapeHtml(String(item.quantity))}</td>
+      <td><span class="item-name"><strong>${escapeHtml(item.catalogNumber || "-")}</strong><small>${escapeHtml(item.description || "-")}</small></span></td>
+      <td class="numeric">${escapeHtml(String(item.quantity))}</td>
+      <td class="numeric">${escapeHtml(item.price || "-")}</td>
+      <td class="numeric">${escapeHtml(item.value || "-")}</td>
+      <td><span class="lot-info"><strong>${escapeHtml(item.lotNumber || "-")}</strong>${item.lotComment ? `<small>${escapeHtml(item.lotComment)}</small>` : ""}</span></td>
       <td>${escapeHtml(item.status || "-")}</td>
     </tr>
   `).join("");
@@ -378,7 +492,6 @@ function buildLabels() {
   els.printArea.style.setProperty("--label-width", width);
   els.printArea.style.setProperty("--label-height", height);
 
-  const orderTitle = state.selectedOrder ? getOrderTitle(state.selectedOrder) : "";
   const labels = [];
 
   for (const item of state.selectedItems) {
@@ -386,10 +499,9 @@ function buildLabels() {
     for (let copy = 0; copy < count; copy += 1) {
       labels.push(`
         <section class="label">
-          <h3>${escapeHtml(item.name)}</h3>
-          <p>${escapeHtml(item.mpn || "MPN: -")}</p>
-          <p>${escapeHtml(item.supplier || "Supplier: -")}</p>
-          <p>${escapeHtml(orderTitle)}</p>
+          <h3>${escapeHtml(item.catalogNumber || item.mpn || "Catalog: -")}</h3>
+          <p>${escapeHtml(item.description || "")}</p>
+          ${item.lot ? `<p>LOT: ${escapeHtml(item.lot)}</p>` : ""}
           <p class="qty">Qty: ${escapeHtml(String(item.quantity))}</p>
         </section>
       `);

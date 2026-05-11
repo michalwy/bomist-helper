@@ -296,13 +296,25 @@ td {
   font-size: 14px;
 }
 
-.item-name {
+.numeric {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.item-name,
+.lot-info {
   display: grid;
   gap: 3px;
 }
 
-.item-name small {
+.item-name small,
+.lot-info small {
   color: var(--muted);
+}
+
+.lot-info small {
+  max-width: 260px;
+  overflow-wrap: anywhere;
 }
 
 .hint {
