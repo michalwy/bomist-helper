@@ -4,6 +4,7 @@ const state = {
   selectedOrder: null,
   selectedItems: [],
   partsById: new Map(),
+  labelsById: new Map(),
   lotsById: new Map()
 };
 
@@ -19,7 +20,6 @@ const defaultSettings = {
 const defaultAppState = {
   selectedOrderId: "",
   orderSearch: "",
-  labelFormat: "medium",
   repeatByQuantity: false
 };
 
@@ -40,7 +40,6 @@ const els = {
   ordersSelector: document.querySelector("#ordersSelector"),
   detailsEndpoint: document.querySelector("#detailsEndpoint"),
   saveSettingsButton: document.querySelector("#saveSettingsButton"),
-  labelFormat: document.querySelector("#labelFormat"),
   repeatByQuantity: document.querySelector("#repeatByQuantity"),
   printArea: document.querySelector("#printArea")
 };
@@ -57,6 +56,12 @@ function saveSettings(settings) {
   localStorage.setItem(settingsKey, JSON.stringify(settings));
 }
 
+function clearReferenceData() {
+  state.partsById = new Map();
+  state.labelsById = new Map();
+  state.lotsById = new Map();
+}
+
 function loadAppState() {
   try {
     return { ...defaultAppState, ...JSON.parse(localStorage.getItem(appStateKey) || "{}") };
@@ -69,7 +74,6 @@ function getCurrentAppState() {
   return {
     selectedOrderId: state.selectedOrder ? String(getOrderId(state.selectedOrder) || "") : "",
     orderSearch: els.orderSearch.value,
-    labelFormat: els.labelFormat.value,
     repeatByQuantity: els.repeatByQuantity.checked
   };
 }
@@ -80,7 +84,6 @@ function saveAppState(appState = getCurrentAppState()) {
 
 function applyAppState(appState) {
   els.orderSearch.value = appState.orderSearch || "";
-  els.labelFormat.value = appState.labelFormat || defaultAppState.labelFormat;
   els.repeatByQuantity.checked = Boolean(appState.repeatByQuantity);
 }
 
@@ -135,7 +138,10 @@ function unwrapCollection(payload) {
     payload.results,
     payload.items,
     payload.orders,
-    payload.purchaseOrders
+    payload.purchaseOrders,
+    payload.parts,
+    payload.labels,
+    payload.lots
   ];
 
   const found = candidates.find(Array.isArray);
@@ -174,6 +180,90 @@ function displayValue(value) {
     return value.name || value.code || value.number || value.id || "";
   }
   return String(value);
+}
+
+function firstDisplayValue(...values) {
+  for (const value of values) {
+    const displayed = displayValue(value);
+    if (displayed) return displayed;
+  }
+  return "";
+}
+
+function formatDateOnly(value) {
+  const displayed = displayValue(value);
+  if (!displayed) return "";
+
+  const isoDate = displayed.match(/\d{4}-\d{2}-\d{2}/);
+  if (isoDate) return isoDate[0];
+
+  return displayed.split(/[T\s]/)[0];
+}
+
+function labelName(label) {
+  if (!label) return "";
+  if (typeof label !== "object") {
+    const knownLabel = state.labelsById.get(String(label));
+    if (knownLabel) return labelName(knownLabel);
+    const labelText = String(label);
+    return looksLikeOpaqueId(labelText) ? "" : labelText;
+  }
+
+  const knownLabel = state.labelsById.get(String(label.id || label._id || ""));
+  if (knownLabel && knownLabel !== label) return labelName(knownLabel);
+
+  return displayValue(label.name || label.label || label.title || label.value || label.code);
+}
+
+function labelHierarchy(label, seen = new Set()) {
+  if (label && typeof label !== "object") {
+    const knownLabel = state.labelsById.get(String(label));
+    if (knownLabel) return labelHierarchy(knownLabel, seen);
+  }
+
+  if (!label || typeof label !== "object" || seen.has(label)) {
+    return labelName(label);
+  }
+
+  seen.add(label);
+
+  const knownLabel = state.labelsById.get(String(label.id || label._id || ""));
+  if (knownLabel && knownLabel !== label && !seen.has(knownLabel)) {
+    return labelHierarchy(knownLabel, seen);
+  }
+
+  if (typeof label.path === "string" && label.path.trim()) return formatLabelPath(label.path);
+  if (typeof label.fullName === "string" && label.fullName.trim()) return formatLabelPath(label.fullName);
+  if (typeof label.fullPath === "string" && label.fullPath.trim()) return formatLabelPath(label.fullPath);
+
+  const parents = Array.isArray(label.parents)
+    ? label.parents.flatMap(parent => labelHierarchy(parent, seen).split(" > ").filter(Boolean))
+    : labelHierarchy(label.parent || label.parentId || label.parentLabel || label.parent_label, seen).split(" > ").filter(Boolean);
+  const current = labelName(label);
+
+  return [...parents, current].filter(Boolean).join(" > ");
+}
+
+function formatLabelPath(value) {
+  return value
+    .split(/\s*(?:>| - )\s*/g)
+    .map(part => part.trim())
+    .filter(Boolean)
+    .join(" > ");
+}
+
+function looksLikeOpaqueId(value) {
+  return /^[a-f0-9]{24}$/i.test(value) || /^[a-z0-9_-]{16,}$/i.test(value);
+}
+
+function formatLabels(...values) {
+  const labels = values.flatMap(value => {
+    if (!value) return [];
+    return Array.isArray(value) ? value : [value];
+  });
+
+  const formatted = labels.map(label => labelHierarchy(label)).filter(Boolean);
+  return [...new Set(formatted)].join(", ");
 }
 
 function getOrderId(order) {
@@ -297,18 +387,52 @@ function firstLotDetails(...values) {
   return { number: "", comment: "" };
 }
 
+function getOrderLabelDetails(order) {
+  const purchaseOrder = order?.purchase_order || order?.purchaseOrder || order?.order || {};
+  const number = getOrderTitle(order || {});
+  const date = formatDateOnly(
+    purchaseOrder.orderedOn ||
+      purchaseOrder.receivedOn ||
+      purchaseOrder.createdAt ||
+      order?.orderedOn ||
+      order?.receivedOn ||
+      order?.created_at ||
+      order?.createdAt
+  );
+  const supplier = displayValue(
+    purchaseOrder.supplier ||
+      purchaseOrder.supplierName ||
+      order?.supplier ||
+      order?.supplierName
+  );
+
+  return { number, date, supplier };
+}
+
 function normalizeItem(item, index, order = state.selectedOrder) {
   const purchaseOrderItem = item.purchase_order_item || item.purchaseOrderItem || item;
   const partId = purchaseOrderItem.part || item.part;
   const knownPart = state.partsById.get(partId) || {};
-  const part = knownPart.part || item.partSnapshot || item.purchaseItem || item.product || {};
+  const part =
+    knownPart.part ||
+    (Object.keys(knownPart).length ? knownPart : null) ||
+    item.partSnapshot ||
+    item.purchaseItem ||
+    item.product ||
+    {};
   const quote = item.quote || item.supplierPart || {};
-  const description =
-    part.description ||
-    part.value ||
-    purchaseOrderItem.product?.description ||
-    deepFind(item, ["description", "name"]) ||
-    `Item ${index + 1}`;
+  const product = purchaseOrderItem.product || item.product || {};
+  const description = firstDisplayValue(
+    part.description,
+    part.value,
+    part.name,
+    product.description,
+    product.name,
+    item.partSnapshot?.description,
+    item.partSnapshot?.name,
+    item.purchaseItem?.description,
+    item.purchaseItem?.name
+  );
   const catalogNumber =
     part.mpn ||
     part.manufacturerPartNumber ||
@@ -317,6 +441,20 @@ function normalizeItem(item, index, order = state.selectedOrder) {
     purchaseOrderItem.product?.sku ||
     deepFind(item, ["mpn", "manufacturerPartNumber", "catalogNumber", "sku", "partNumber", "ipn"]) ||
     partId;
+  const category = formatLabels(
+    part.label,
+    part.labels,
+    part.labelPath,
+    part.label_path,
+    deepFind(item, ["label", "labels", "labelPath", "label_path"])
+  );
+  const manufacturer = displayValue(
+    part.manufacturer ||
+      part.manufacturerName ||
+      part.mfr ||
+      purchaseOrderItem.product?.manufacturer ||
+      deepFind(item, ["manufacturer", "manufacturerName", "mfr"])
+  );
   const supplier = deepFind(item, ["supplier", "supplierName", "vendor"]) || deepFind(quote, ["supplier", "supplierName", "vendor"]);
   const orderData = order?.purchase_order || order?.purchaseOrder || {};
   const orderSupplier = orderData.supplier?.name || orderData.supplierName || order?.supplierName || "";
@@ -346,6 +484,7 @@ function normalizeItem(item, index, order = state.selectedOrder) {
   const computedValue = numericValue(explicitValue) === null && unitPrice !== null ? unitPrice * normalizedQuantity : explicitValue;
   const lotDetails = firstLotDetails(purchaseOrderItem.lot, item.lot, deepFind(item, ["lot", "batch"]));
   const status = purchaseOrderItem.status || deepFind(item, ["status", "state", "receivedStatus"]) || "";
+  const orderDetails = getOrderLabelDetails(order);
 
   return {
     raw: item,
@@ -354,6 +493,8 @@ function normalizeItem(item, index, order = state.selectedOrder) {
     description: String(description),
     catalogNumber: catalogNumber ? String(catalogNumber) : "",
     mpn: catalogNumber ? String(catalogNumber) : "",
+    category,
+    manufacturer,
     supplier: displayValue(supplier) || displayValue(orderSupplier),
     quantity: normalizedQuantity,
     price: formatMoney(price, currency),
@@ -361,6 +502,9 @@ function normalizeItem(item, index, order = state.selectedOrder) {
     lot: [lotDetails.number, lotDetails.comment].filter(Boolean).join(" - "),
     lotNumber: lotDetails.number,
     lotComment: lotDetails.comment,
+    orderNumber: orderDetails.number,
+    orderDate: orderDetails.date,
+    orderSupplier: orderDetails.supplier,
     status: status ? String(status) : ""
   };
 }
@@ -392,6 +536,7 @@ async function loadOrders() {
 
     state.orders = unwrapCollection(payload);
     await loadParts();
+    await loadLabels();
     await loadLots();
     filterOrders();
     if (selectedOrderId) {
@@ -418,6 +563,36 @@ async function loadParts() {
     state.partsById = new Map(parts.map(part => [part.part?.id || part.id || part._id, part]).filter(([id]) => id));
   } catch {
     state.partsById = new Map();
+  }
+}
+
+async function loadLabels() {
+  if (state.labelsById.size) return;
+
+  const labelEndpoints = [
+    "/labels?limit=5000",
+    "/part_labels?limit=5000",
+    "/partLabels?limit=5000"
+  ];
+
+  for (const endpoint of labelEndpoints) {
+    try {
+      const payload = await bomistFetch(endpoint);
+      const labels = unwrapCollection(payload);
+      if (!labels.length) continue;
+
+      state.labelsById = new Map(
+        labels
+          .map(label => {
+            const labelData = label.label && typeof label.label === "object" ? label.label : label;
+            return [labelData.id || labelData._id || label.id || label._id, labelData];
+          })
+          .filter(([id]) => id)
+      );
+      return;
+    } catch {
+      state.labelsById = new Map();
+    }
   }
 }
 
@@ -537,12 +712,7 @@ function escapeHtml(value) {
 }
 
 function getLabelSize() {
-  const sizes = {
-    small: ["50mm", "30mm"],
-    medium: ["70mm", "36mm"],
-    wide: ["89mm", "36mm"]
-  };
-  return sizes[els.labelFormat.value] || sizes.medium;
+  return ["66mm", "30mm"];
 }
 
 function buildLabels() {
@@ -554,13 +724,32 @@ function buildLabels() {
 
   for (const item of state.selectedItems) {
     const count = els.repeatByQuantity.checked ? Math.max(1, Math.min(500, Math.round(item.quantity))) : 1;
+    const partDetails = [
+      item.category ? `<span class="label-category">${escapeHtml(item.category)}</span>` : "",
+      item.description ? `<span class="label-description">${escapeHtml(item.description)}</span>` : ""
+    ].filter(Boolean).join("");
+    const orderDetails = [
+      item.orderNumber ? `<span>${escapeHtml(item.orderNumber)}</span>` : "",
+      item.orderDate ? `<span>${escapeHtml(item.orderDate)}</span>` : "",
+      item.orderSupplier ? `<span>${escapeHtml(item.orderSupplier)}</span>` : ""
+    ].filter(Boolean).join("");
+    const hasLotDetails = Boolean(item.lotNumber || item.lotComment);
+
     for (let copy = 0; copy < count; copy += 1) {
       labels.push(`
-        <section class="label">
-          <h3>${escapeHtml(item.catalogNumber || item.mpn || "Catalog: -")}</h3>
-          <p>${escapeHtml(item.description || "")}</p>
-          ${item.lot ? `<p>LOT: ${escapeHtml(item.lot)}</p>` : ""}
-          <p class="qty">Qty: ${escapeHtml(String(item.quantity))}</p>
+        <section class="label${hasLotDetails ? " has-lot" : ""}">
+          <div class="label-heading">
+            <h3>${escapeHtml(item.catalogNumber || item.mpn || "Catalog: -")}</h3>
+            ${item.manufacturer ? `<span>${escapeHtml(item.manufacturer)}</span>` : ""}
+          </div>
+          ${partDetails ? `<div class="label-details">${partDetails}</div>` : ""}
+          ${hasLotDetails ? `
+            <div class="label-lot">
+              ${item.lotNumber ? `<span>LOT: ${escapeHtml(item.lotNumber)}</span>` : ""}
+              ${item.lotComment ? `<span>${escapeHtml(item.lotComment)}</span>` : ""}
+            </div>
+          ` : ""}
+          ${orderDetails ? `<div class="label-order">${orderDetails}</div>` : ""}
         </section>
       `);
     }
@@ -577,7 +766,6 @@ function printLabels() {
 els.refreshButton.addEventListener("click", loadOrders);
 els.printButton.addEventListener("click", printLabels);
 els.orderSearch.addEventListener("input", filterOrders);
-els.labelFormat.addEventListener("change", () => saveAppState());
 els.repeatByQuantity.addEventListener("change", () => saveAppState());
 els.ordersList.addEventListener("click", event => {
   const row = event.target.closest(".order-row");
@@ -585,6 +773,7 @@ els.ordersList.addEventListener("click", event => {
 });
 els.saveSettingsButton.addEventListener("click", () => {
   saveSettings(readSettings());
+  clearReferenceData();
   loadOrders();
 });
 

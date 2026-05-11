@@ -381,15 +381,18 @@ td {
 
   .print-area {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(var(--label-width), var(--label-width)));
-    gap: 3mm;
+    grid-template-columns: repeat(3, var(--label-width));
+    gap: 0;
     align-content: start;
   }
 
   .label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55mm;
     width: var(--label-width);
     height: var(--label-height);
-    padding: 3mm;
+    padding: 1.5mm 2.2mm;
     border: 1px solid #000;
     overflow: hidden;
     break-inside: avoid;
@@ -397,21 +400,99 @@ td {
     background: #fff;
   }
 
-  .label h3 {
-    margin: 0 0 1.5mm;
-    font-size: 10pt;
+  .label-heading {
+    display: flex;
+    align-items: baseline;
+    gap: 1.2mm;
+    min-width: 0;
+  }
+
+  .label-heading h3 {
+    flex: 1 1 auto;
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 8pt;
     line-height: 1.1;
   }
 
-  .label p {
-    margin: 0.8mm 0;
-    font-size: 8pt;
+  .label-heading span {
+    flex: 0 1 38%;
+    overflow: hidden;
+    color: #222;
+    font-size: 5.5pt;
+    font-weight: 700;
+    line-height: 1.1;
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .label-details,
+  .label-lot,
+  .label-order {
+    display: grid;
+    min-width: 0;
+    line-height: 1.12;
+  }
+
+  .label-details {
+    gap: 0.25mm;
+    font-size: 5.6pt;
+  }
+
+  .label-details span,
+  .label-lot span,
+  .label-order span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .label-details .label-category {
+    display: block;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.08;
+  }
+
+  .label-details .label-description {
+    display: -webkit-box;
+    margin-top: 1.5mm;
+    overflow: hidden;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    line-height: 1.1;
+  }
+
+  .label-lot {
+    margin-top: auto;
+    gap: 0.25mm;
+    padding-top: 0.45mm;
+    border-top: 1px solid #000;
+    font-size: 5.8pt;
+    font-weight: 700;
+  }
+
+  .label-lot span + span {
+    font-weight: 500;
+  }
+
+  .label-order {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.6mm;
+    padding-top: 0.45mm;
+    border-top: 1px solid #000;
+    font-size: 5pt;
     line-height: 1.15;
   }
 
-  .label .qty {
-    margin-top: 1.4mm;
-    font-size: 12pt;
-    font-weight: 800;
+  .label:not(.has-lot) .label-order {
+    margin-top: auto;
   }
 }
