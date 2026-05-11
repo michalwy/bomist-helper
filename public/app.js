@@ -8,11 +8,19 @@ const state = {
 };
 
 const settingsKey = "bomist-helper-settings";
+const appStateKey = "bomist-helper-state";
 const defaultSettings = {
   apiBaseUrl: "http://localhost:3333",
   ordersEndpoint: "/purchase_orders?limit=100",
   ordersSelector: "{}",
   detailsEndpoint: "/purchase_orders/{id}/items"
+};
+
+const defaultAppState = {
+  selectedOrderId: "",
+  orderSearch: "",
+  labelFormat: "medium",
+  repeatByQuantity: false
 };
 
 const els = {
@@ -47,6 +55,33 @@ function loadSettings() {
 
 function saveSettings(settings) {
   localStorage.setItem(settingsKey, JSON.stringify(settings));
+}
+
+function loadAppState() {
+  try {
+    return { ...defaultAppState, ...JSON.parse(localStorage.getItem(appStateKey) || "{}") };
+  } catch {
+    return { ...defaultAppState };
+  }
+}
+
+function getCurrentAppState() {
+  return {
+    selectedOrderId: state.selectedOrder ? String(getOrderId(state.selectedOrder) || "") : "",
+    orderSearch: els.orderSearch.value,
+    labelFormat: els.labelFormat.value,
+    repeatByQuantity: els.repeatByQuantity.checked
+  };
+}
+
+function saveAppState(appState = getCurrentAppState()) {
+  localStorage.setItem(appStateKey, JSON.stringify(appState));
+}
+
+function applyAppState(appState) {
+  els.orderSearch.value = appState.orderSearch || "";
+  els.labelFormat.value = appState.labelFormat || defaultAppState.labelFormat;
+  els.repeatByQuantity.checked = Boolean(appState.repeatByQuantity);
 }
 
 function applySettings(settings) {
@@ -337,6 +372,7 @@ function setConnection(message, className = "") {
 
 async function loadOrders() {
   const settings = readSettings();
+  const selectedOrderId = state.selectedOrder ? getOrderId(state.selectedOrder) : loadAppState().selectedOrderId;
   setConnection("Connecting to BOMist...");
   els.ordersList.innerHTML = `<div class="hint">Loading orders...</div>`;
   els.printButton.disabled = true;
@@ -358,10 +394,16 @@ async function loadOrders() {
     await loadParts();
     await loadLots();
     filterOrders();
+    if (selectedOrderId) {
+      await selectOrder(selectedOrderId);
+    } else {
+      clearSelection({ persist: true });
+    }
     setConnection(`Connected to BOMist. Loaded orders: ${state.orders.length}.`, "status-ok");
   } catch (error) {
     state.orders = [];
     state.filteredOrders = [];
+    clearSelection();
     renderOrders();
     setConnection(`No connection or incompatible endpoint: ${error.message}`, "status-error");
   }
@@ -398,6 +440,7 @@ function filterOrders() {
     return haystack.includes(query);
   });
   renderOrders();
+  saveAppState();
 }
 
 function renderOrders() {
@@ -410,7 +453,7 @@ function renderOrders() {
 
   els.ordersList.innerHTML = state.filteredOrders.map(order => {
     const id = getOrderId(order);
-    const active = state.selectedOrder && getOrderId(state.selectedOrder) === id ? " active" : "";
+    const active = state.selectedOrder && String(getOrderId(state.selectedOrder)) === String(id) ? " active" : "";
     return `
       <button class="order-row${active}" data-order-id="${escapeHtml(String(id || ""))}">
         <strong>${escapeHtml(getOrderTitle(order))}</strong>
@@ -420,9 +463,23 @@ function renderOrders() {
   }).join("");
 }
 
-async function selectOrder(orderId) {
+function clearSelection({ persist = false } = {}) {
+  state.selectedOrder = null;
+  state.selectedItems = [];
+  els.emptyState.classList.remove("hidden");
+  els.orderDetails.classList.add("hidden");
+  els.itemsTable.innerHTML = "";
+  els.printButton.disabled = true;
+  renderOrders();
+  if (persist) saveAppState();
+}
+
+async function selectOrder(orderId, { persist = true } = {}) {
   const order = state.orders.find(item => String(getOrderId(item)) === String(orderId));
-  if (!order) return;
+  if (!order) {
+    clearSelection({ persist });
+    return;
+  }
 
   state.selectedOrder = order;
   let detailsPayload = order;
@@ -441,6 +498,7 @@ async function selectOrder(orderId) {
   state.selectedItems = rawItems.map((item, index) => normalizeItem(item, index, order));
   renderOrders();
   renderDetails(order);
+  if (persist) saveAppState();
 }
 
 function renderDetails(order) {
@@ -519,6 +577,8 @@ function printLabels() {
 els.refreshButton.addEventListener("click", loadOrders);
 els.printButton.addEventListener("click", printLabels);
 els.orderSearch.addEventListener("input", filterOrders);
+els.labelFormat.addEventListener("change", () => saveAppState());
+els.repeatByQuantity.addEventListener("change", () => saveAppState());
 els.ordersList.addEventListener("click", event => {
   const row = event.target.closest(".order-row");
   if (row) selectOrder(row.dataset.orderId);
@@ -529,4 +589,5 @@ els.saveSettingsButton.addEventListener("click", () => {
 });
 
 applySettings(loadSettings());
+applyAppState(loadAppState());
 loadOrders();
