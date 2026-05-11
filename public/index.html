@@ -49,6 +49,14 @@
                   <input id="repeatByQuantity" type="checkbox">
                   Repeat by quantity
                 </label>
+                <div class="selection-tools" aria-label="Label item selection">
+                  <span id="selectedItemsCount">0 selected</span>
+                  <div class="selection-actions">
+                    <button id="selectAllItemsButton" class="text-button" type="button">All</button>
+                    <button id="selectNoItemsButton" class="text-button" type="button">None</button>
+                    <button id="selectLotItemsButton" class="text-button" type="button">With LOT</button>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -56,6 +64,7 @@
               <table>
                 <thead>
                   <tr>
+                    <th class="select-column">Print</th>
                     <th>LP</th>
                     <th>Catalog number</th>
                     <th class="numeric">Quantity</th>

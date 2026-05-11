@@ -256,6 +256,7 @@ textarea {
 .print-options {
   display: grid;
   min-width: 220px;
+  gap: 10px;
 }
 
 .checkbox-label {
@@ -266,6 +267,57 @@ textarea {
 
 .checkbox-label input {
   width: auto;
+}
+
+.selection-tools {
+  display: grid;
+  gap: 8px;
+}
+
+.selection-tools span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.selection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.text-button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.text-button:hover {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+.select-column {
+  width: 1%;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.item-select {
+  display: grid;
+  place-items: center;
+  min-height: 22px;
+  margin: 0;
+}
+
+.item-select input {
+  width: auto;
+  margin: 0;
 }
 
 .table-wrap {

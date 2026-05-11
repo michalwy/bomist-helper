@@ -3,6 +3,7 @@ const state = {
   filteredOrders: [],
   selectedOrder: null,
   selectedItems: [],
+  selectedItemKeys: new Set(),
   partsById: new Map(),
   labelsById: new Map(),
   lotsById: new Map()
@@ -20,7 +21,9 @@ const defaultSettings = {
 const defaultAppState = {
   selectedOrderId: "",
   orderSearch: "",
-  repeatByQuantity: false
+  repeatByQuantity: false,
+  selectedItemOrderId: "",
+  selectedItemKeys: []
 };
 
 const els = {
@@ -41,6 +44,10 @@ const els = {
   detailsEndpoint: document.querySelector("#detailsEndpoint"),
   saveSettingsButton: document.querySelector("#saveSettingsButton"),
   repeatByQuantity: document.querySelector("#repeatByQuantity"),
+  selectedItemsCount: document.querySelector("#selectedItemsCount"),
+  selectAllItemsButton: document.querySelector("#selectAllItemsButton"),
+  selectNoItemsButton: document.querySelector("#selectNoItemsButton"),
+  selectLotItemsButton: document.querySelector("#selectLotItemsButton"),
   printArea: document.querySelector("#printArea")
 };
 
@@ -71,10 +78,13 @@ function loadAppState() {
 }
 
 function getCurrentAppState() {
+  const selectedOrderId = state.selectedOrder ? String(getOrderId(state.selectedOrder) || "") : "";
   return {
-    selectedOrderId: state.selectedOrder ? String(getOrderId(state.selectedOrder) || "") : "",
+    selectedOrderId,
     orderSearch: els.orderSearch.value,
-    repeatByQuantity: els.repeatByQuantity.checked
+    repeatByQuantity: els.repeatByQuantity.checked,
+    selectedItemOrderId: selectedOrderId,
+    selectedItemKeys: [...state.selectedItemKeys]
   };
 }
 
@@ -409,6 +419,18 @@ function getOrderLabelDetails(order) {
   return { number, date, supplier };
 }
 
+function getItemKey(item, index) {
+  const purchaseOrderItem = item.purchase_order_item || item.purchaseOrderItem || item;
+  const id = purchaseOrderItem.id ||
+    purchaseOrderItem._id ||
+    purchaseOrderItem.uuid ||
+    item.id ||
+    item._id ||
+    item.uuid;
+
+  return id ? String(id) : `row-${index + 1}`;
+}
+
 function normalizeItem(item, index, order = state.selectedOrder) {
   const purchaseOrderItem = item.purchase_order_item || item.purchaseOrderItem || item;
   const partId = purchaseOrderItem.part || item.part;
@@ -487,6 +509,7 @@ function normalizeItem(item, index, order = state.selectedOrder) {
   const orderDetails = getOrderLabelDetails(order);
 
   return {
+    key: getItemKey(item, index),
     raw: item,
     index: index + 1,
     name: String(description),
@@ -538,7 +561,7 @@ async function loadOrders() {
     await loadParts();
     await loadLabels();
     await loadLots();
-    filterOrders();
+    filterOrders({ persist: false });
     if (selectedOrderId) {
       await selectOrder(selectedOrderId);
     } else {
@@ -608,14 +631,14 @@ async function loadLots() {
   }
 }
 
-function filterOrders() {
+function filterOrders({ persist = true } = {}) {
   const query = els.orderSearch.value.trim().toLowerCase();
   state.filteredOrders = state.orders.filter(order => {
     const haystack = `${getOrderTitle(order)} ${getOrderMeta(order)} ${getOrderId(order)}`.toLowerCase();
     return haystack.includes(query);
   });
   renderOrders();
-  saveAppState();
+  if (persist) saveAppState();
 }
 
 function renderOrders() {
@@ -641,10 +664,12 @@ function renderOrders() {
 function clearSelection({ persist = false } = {}) {
   state.selectedOrder = null;
   state.selectedItems = [];
+  state.selectedItemKeys = new Set();
   els.emptyState.classList.remove("hidden");
   els.orderDetails.classList.add("hidden");
   els.itemsTable.innerHTML = "";
   els.printButton.disabled = true;
+  updateSelectionSummary();
   renderOrders();
   if (persist) saveAppState();
 }
@@ -671,9 +696,24 @@ async function selectOrder(orderId, { persist = true } = {}) {
 
   const rawItems = Array.isArray(detailsPayload) ? unwrapCollection(detailsPayload) : getItems(detailsPayload);
   state.selectedItems = rawItems.map((item, index) => normalizeItem(item, index, order));
+  restoreItemSelection(order);
   renderOrders();
   renderDetails(order);
   if (persist) saveAppState();
+}
+
+function restoreItemSelection(order) {
+  const appState = loadAppState();
+  const orderId = String(getOrderId(order) || "");
+  const persistedKeys = Array.isArray(appState.selectedItemKeys) ? appState.selectedItemKeys.map(String) : [];
+  const validKeys = new Set(state.selectedItems.map(item => item.key));
+
+  if (appState.selectedItemOrderId === orderId && Array.isArray(appState.selectedItemKeys)) {
+    state.selectedItemKeys = new Set(persistedKeys.filter(key => validKeys.has(key)));
+    return;
+  }
+
+  state.selectedItemKeys = new Set(state.selectedItems.map(item => item.key));
 }
 
 function renderDetails(order) {
@@ -683,13 +723,19 @@ function renderDetails(order) {
   els.selectedOrderMeta.textContent = getOrderMeta(order) || getOrderId(order) || "";
 
   if (!state.selectedItems.length) {
-    els.itemsTable.innerHTML = `<tr><td colspan="7">No items found in this order. Check the details endpoint or the data structure in Swagger.</td></tr>`;
+    els.itemsTable.innerHTML = `<tr><td colspan="8">No items found in this order. Check the details endpoint or the data structure in Swagger.</td></tr>`;
     els.printButton.disabled = true;
+    updateSelectionSummary();
     return;
   }
 
   els.itemsTable.innerHTML = state.selectedItems.map(item => `
     <tr>
+      <td class="select-column">
+        <label class="item-select" title="Print label for this item">
+          <input type="checkbox" data-item-key="${escapeHtml(item.key)}" ${state.selectedItemKeys.has(item.key) ? "checked" : ""}>
+        </label>
+      </td>
       <td>${item.index}</td>
       <td><span class="item-name"><strong>${escapeHtml(item.catalogNumber || "-")}</strong><small>${escapeHtml(item.description || "-")}</small></span></td>
       <td class="numeric">${escapeHtml(String(item.quantity))}</td>
@@ -699,7 +745,30 @@ function renderDetails(order) {
       <td>${escapeHtml(item.status || "-")}</td>
     </tr>
   `).join("");
-  els.printButton.disabled = false;
+  updateSelectionSummary();
+}
+
+function selectedItems() {
+  return state.selectedItems.filter(item => state.selectedItemKeys.has(item.key));
+}
+
+function updateSelectionSummary() {
+  if (!els.selectedItemsCount) return;
+
+  const selectedCount = selectedItems().length;
+  const totalCount = state.selectedItems.length;
+  els.selectedItemsCount.textContent = `${selectedCount} of ${totalCount} selected`;
+  els.printButton.disabled = selectedCount === 0;
+}
+
+function setSelectedItems(predicate) {
+  state.selectedItemKeys = new Set(
+    state.selectedItems
+      .filter(predicate)
+      .map(item => item.key)
+  );
+  renderDetails(state.selectedOrder);
+  saveAppState();
 }
 
 function escapeHtml(value) {
@@ -722,7 +791,7 @@ function buildLabels() {
 
   const labels = [];
 
-  for (const item of state.selectedItems) {
+  for (const item of selectedItems()) {
     const count = els.repeatByQuantity.checked ? Math.max(1, Math.min(500, Math.round(item.quantity))) : 1;
     const partDetails = [
       item.category ? `<span class="label-category">${escapeHtml(item.category)}</span>` : "",
@@ -759,6 +828,7 @@ function buildLabels() {
 }
 
 function printLabels() {
+  if (!selectedItems().length) return;
   buildLabels();
   window.print();
 }
@@ -767,9 +837,25 @@ els.refreshButton.addEventListener("click", loadOrders);
 els.printButton.addEventListener("click", printLabels);
 els.orderSearch.addEventListener("input", filterOrders);
 els.repeatByQuantity.addEventListener("change", () => saveAppState());
+els.selectAllItemsButton.addEventListener("click", () => setSelectedItems(() => true));
+els.selectNoItemsButton.addEventListener("click", () => setSelectedItems(() => false));
+els.selectLotItemsButton.addEventListener("click", () => setSelectedItems(item => Boolean(item.lotNumber || item.lotComment)));
 els.ordersList.addEventListener("click", event => {
   const row = event.target.closest(".order-row");
   if (row) selectOrder(row.dataset.orderId);
+});
+els.itemsTable.addEventListener("change", event => {
+  const checkbox = event.target.closest('input[type="checkbox"][data-item-key]');
+  if (!checkbox) return;
+
+  if (checkbox.checked) {
+    state.selectedItemKeys.add(checkbox.dataset.itemKey);
+  } else {
+    state.selectedItemKeys.delete(checkbox.dataset.itemKey);
+  }
+
+  updateSelectionSummary();
+  saveAppState();
 });
 els.saveSettingsButton.addEventListener("click", () => {
   saveSettings(readSettings());

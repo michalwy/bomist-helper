@@ -34,4 +34,4 @@ The `Integration` panel lets you change the API URL and endpoints without editin
 
 ## Label Printing
 
-After selecting an order, the `Print labels` button opens the print view. Three label formats are available, plus an option to repeat labels by item quantity.
+After selecting an order, use the item checkboxes to choose which rows should produce labels. The quick selection buttons can select all rows, no rows, or only rows with LOT data. The `Print labels` button opens the print view for selected rows, with an option to repeat labels by item quantity.

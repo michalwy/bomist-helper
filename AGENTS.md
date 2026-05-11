@@ -10,9 +10,10 @@ Current main workflow:
 - select one order,
 - load its items,
 - enrich item rows with part data,
-- print one label per item, optionally repeated by quantity.
+- choose which item rows should produce labels,
+- print one label per selected item, optionally repeated by quantity.
 
-The app preserves selected UI state across page refreshes in browser `localStorage`, including the selected order, order filter text, label format, and the "repeat by quantity" option.
+The app preserves selected UI state across page refreshes in browser `localStorage`, including the selected order, order filter text, selected item rows for the active order, and the "repeat by quantity" option.
 
 ## Tech Stack
 
@@ -79,4 +80,4 @@ The app also has an `Integration` panel where the user can change the API URL an
 - New BOMist endpoints: add or adjust fetch logic in `public/app.js`, then update defaults in both `defaultSettings` and `public/index.html`.
 - Label content/layout: update `buildLabels()` in `public/app.js` and matching print CSS in `public/styles.css`.
 - UI copy: update `public/index.html` and any runtime messages in `public/app.js`.
-- Persisted UI state: update `defaultAppState`, `loadAppState()`, `getCurrentAppState()`, `saveAppState()`, and `applyAppState()` in `public/app.js`.
+- Persisted UI state: update `defaultAppState`, `loadAppState()`, `getCurrentAppState()`, `saveAppState()`, `applyAppState()`, and item selection restore logic in `public/app.js`.
