@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>BOMist Helper</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>BOMist Helper</h1>
+          <p id="connectionStatus">Checking BOMist connection...</p>
+        </div>
+        <div class="topbar-actions">
+          <button id="refreshButton" class="icon-button" title="Refresh data">⟳</button>
+          <button id="printButton" class="primary-button" disabled>Print labels</button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="sidebar">
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Orders</h2>
+              <span id="ordersCount">0</span>
+            </div>
+            <input id="orderSearch" class="search-input" type="search" placeholder="Filter list">
+            <div id="ordersList" class="orders-list" aria-live="polite"></div>
+          </section>
+        </aside>
+
+        <section class="details">
+          <div id="emptyState" class="empty-state">
+            <h2>Select an order</h2>
+            <p>The selected order items will appear here and can be printed as labels.</p>
+          </div>
+
+          <div id="orderDetails" class="order-details hidden">
+            <div class="details-header">
+              <div>
+                <p class="eyebrow">Selected order</p>
+                <h2 id="selectedOrderTitle"></h2>
+                <p id="selectedOrderMeta"></p>
+              </div>
+              <div class="print-options">
+                <label>
+                  Label format
+                  <select id="labelFormat">
+                    <option value="small">Small 50 x 30 mm</option>
+                    <option value="medium" selected>Standard 70 x 36 mm</option>
+                    <option value="wide">Wide 89 x 36 mm</option>
+                  </select>
+                </label>
+                <label class="checkbox-label">
+                  <input id="repeatByQuantity" type="checkbox">
+                  Repeat by quantity
+                </label>
+              </div>
+            </div>
+
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>LP</th>
+                    <th>Item</th>
+                    <th>MPN / SKU</th>
+                    <th>Supplier</th>
+                    <th>Quantity</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="itemsTable"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <aside class="settings">
+          <section class="panel">
+            <h2>Integration</h2>
+            <label>
+              API URL
+              <input id="apiBaseUrl" type="url" value="http://localhost:3333">
+            </label>
+            <label>
+              List endpoint
+              <input id="ordersEndpoint" type="text" value="/purchase_orders?limit=100">
+            </label>
+            <label>
+              Search selector
+              <textarea id="ordersSelector" rows="5">{}</textarea>
+            </label>
+            <label>
+              Details endpoint
+              <input id="detailsEndpoint" type="text" value="/purchase_orders/{id}/items">
+            </label>
+            <p class="hint">If your Swagger shows different paths, update them here. Settings are stored locally in this browser.</p>
+            <button id="saveSettingsButton" class="secondary-button">Save settings</button>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <div id="printArea" class="print-area" aria-hidden="true"></div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
