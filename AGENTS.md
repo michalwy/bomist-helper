@@ -51,6 +51,8 @@ node --check public/app.js
 
 When testing with real data, BOMist must be running locally with API enabled in `Settings > API`.
 
+When an agent starts the local app server during work, leave it running at the end unless the user explicitly asks to stop it.
+
 ## BOMist API Assumptions
 
 Default endpoints target BOMist 2.14.x:
@@ -69,6 +71,7 @@ The app also has an `Integration` panel where the user can change the API URL an
 - Preserve refresh persistence for user-facing UI state. Settings use `bomist-helper-settings`; app UI state uses `bomist-helper-state`.
 - Be careful with print styles in `public/styles.css`; `@media print` is part of the primary feature, not decoration.
 - Do not hard-code private workspace paths, user data, or specific order numbers in the app.
+- If you start `npm start` for the user, keep that server running after finishing so the app remains available locally.
 - When changing workflows, defaults, storage keys, API assumptions, setup, verification steps, or common change areas, check whether `AGENTS.md` should be updated in the same change and update it when needed.
 
 ## Common Change Areas
