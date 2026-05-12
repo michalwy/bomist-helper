@@ -88,20 +88,19 @@
               API URL
               <input id="apiBaseUrl" type="url" value="http://localhost:3333">
             </label>
-            <label>
-              List endpoint
-              <input id="ordersEndpoint" type="text" value="/purchase_orders?limit=100">
-            </label>
-            <label>
-              Search selector
-              <textarea id="ordersSelector" rows="5">{}</textarea>
-            </label>
-            <label>
-              Details endpoint
-              <input id="detailsEndpoint" type="text" value="/purchase_orders/{id}/items">
-            </label>
-            <p class="hint">If your Swagger shows different paths, update them here. Settings are stored locally in this browser.</p>
+            <p class="hint">Endpoint paths follow the BOMist 2.14.x API. Only the local API address is configurable.</p>
             <button id="saveSettingsButton" class="secondary-button">Save settings</button>
+          </section>
+
+          <section class="panel label-path-panel">
+            <h2>Create label path</h2>
+            <label>
+              Path
+              <textarea id="labelPathInput" rows="7" placeholder="Passives&#10;Potentiometers&#10;Shaft potentiometers"></textarea>
+            </label>
+            <p class="hint">Enter one label per line or separate labels with &gt;. Existing parent labels are reused.</p>
+            <button id="createLabelPathButton" class="primary-button" type="button">Create path</button>
+            <p id="labelPathStatus" class="hint" aria-live="polite"></p>
           </section>
         </aside>
       </main>

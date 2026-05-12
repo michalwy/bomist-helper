@@ -131,6 +131,12 @@ button {
   padding: 16px;
 }
 
+.settings {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+}
+
 .panel-header {
   display: flex;
   align-items: center;
@@ -399,6 +405,15 @@ td {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.45;
+}
+
+.label-path-panel .primary-button {
+  width: 100%;
+}
+
+#labelPathStatus {
+  margin-bottom: 0;
+  overflow-wrap: anywhere;
 }
 
 .status-ok {

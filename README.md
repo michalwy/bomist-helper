@@ -4,7 +4,8 @@ Local web app for working with the BOMist API. The first implemented workflow in
 
 - loading the order list from local BOMist,
 - showing the items of the selected order,
-- preparing a shared print selection from one or more orders.
+- preparing a shared print selection from one or more orders,
+- creating BOMist label trees from pasted label paths.
 
 ## Run Locally
 
@@ -29,9 +30,15 @@ The app uses these BOMist 2.14.x endpoints:
 - order list: `GET /purchase_orders?limit=100`
 - order items: `GET /purchase_orders/{id}/items`
 - parts for enriching labels: `GET /parts?limit=5000`
+- labels for display and path creation: `GET /labels?limit=5000`
+- label creation: `POST /labels`
 
-The `Integration` panel lets you change the API URL and endpoints without editing code. Settings are stored locally in the browser.
+The `Integration` panel lets you change the API URL without editing code. Endpoint paths are fixed to the BOMist 2.14.x API shape, and the API URL setting is stored locally in the browser.
 
 ## Label Printing
 
 After selecting an order, use the item checkboxes to choose which rows should produce labels. You can move between orders and keep building one shared print selection; the order list shows how many loaded rows are selected for each order. The quick selection buttons can select all rows, no rows, or only rows with LOT data for the current order. Use `Clear basket` to remove all selected rows from all orders. The `Print labels` button opens the print view for all selected rows, with an option to repeat labels by item quantity.
+
+## Label Path Creation
+
+Use the `Create label path` panel to paste a hierarchy with one label per line or labels separated by `>`. The app trims whitespace from each label name, checks existing labels under the same parent, and creates only missing nodes.

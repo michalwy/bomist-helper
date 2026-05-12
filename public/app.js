@@ -14,10 +14,13 @@ const state = {
 const settingsKey = "bomist-helper-settings";
 const appStateKey = "bomist-helper-state";
 const defaultSettings = {
-  apiBaseUrl: "http://localhost:3333",
+  apiBaseUrl: "http://localhost:3333"
+};
+
+const bomistEndpoints = {
   ordersEndpoint: "/purchase_orders?limit=100",
-  ordersSelector: "{}",
-  detailsEndpoint: "/purchase_orders/{id}/items"
+  detailsEndpoint: "/purchase_orders/{id}/items",
+  labelsEndpoint: "/labels?limit=5000"
 };
 
 const defaultAppState = {
@@ -43,10 +46,10 @@ const els = {
   selectedOrderMeta: document.querySelector("#selectedOrderMeta"),
   itemsTable: document.querySelector("#itemsTable"),
   apiBaseUrl: document.querySelector("#apiBaseUrl"),
-  ordersEndpoint: document.querySelector("#ordersEndpoint"),
-  ordersSelector: document.querySelector("#ordersSelector"),
-  detailsEndpoint: document.querySelector("#detailsEndpoint"),
   saveSettingsButton: document.querySelector("#saveSettingsButton"),
+  labelPathInput: document.querySelector("#labelPathInput"),
+  createLabelPathButton: document.querySelector("#createLabelPathButton"),
+  labelPathStatus: document.querySelector("#labelPathStatus"),
   repeatByQuantity: document.querySelector("#repeatByQuantity"),
   selectedItemsCount: document.querySelector("#selectedItemsCount"),
   selectAllItemsButton: document.querySelector("#selectAllItemsButton"),
@@ -135,17 +138,11 @@ function applyAppState(appState) {
 
 function applySettings(settings) {
   els.apiBaseUrl.value = settings.apiBaseUrl;
-  els.ordersEndpoint.value = settings.ordersEndpoint;
-  els.ordersSelector.value = settings.ordersSelector;
-  els.detailsEndpoint.value = settings.detailsEndpoint;
 }
 
 function readSettings() {
   return {
-    apiBaseUrl: els.apiBaseUrl.value.trim() || defaultSettings.apiBaseUrl,
-    ordersEndpoint: els.ordersEndpoint.value.trim() || defaultSettings.ordersEndpoint,
-    ordersSelector: els.ordersSelector.value.trim() || defaultSettings.ordersSelector,
-    detailsEndpoint: els.detailsEndpoint.value.trim() || defaultSettings.detailsEndpoint
+    apiBaseUrl: els.apiBaseUrl.value.trim() || defaultSettings.apiBaseUrl
   };
 }
 
@@ -261,6 +258,17 @@ function labelName(label) {
   return displayValue(label.name || label.label || label.title || label.value || label.code);
 }
 
+function getLabelId(label) {
+  if (!label || typeof label !== "object") return "";
+  return String(label.id || label._id || label.label?.id || label.label?._id || "");
+}
+
+function getLabelParentId(label) {
+  if (!label || typeof label !== "object") return "";
+  const parent = label.parentId ?? label.parent_id ?? label.parent ?? label.label?.parentId ?? label.label?.parent_id;
+  return parent === undefined || parent === null ? "" : String(parent);
+}
+
 function labelHierarchy(label, seen = new Set()) {
   if (label && typeof label !== "object") {
     const knownLabel = state.labelsById.get(String(label));
@@ -284,10 +292,14 @@ function labelHierarchy(label, seen = new Set()) {
 
   const parents = Array.isArray(label.parents)
     ? label.parents.flatMap(parent => labelHierarchy(parent, seen).split(" > ").filter(Boolean))
-    : labelHierarchy(label.parent || label.parentId || label.parentLabel || label.parent_label, seen).split(" > ").filter(Boolean);
+    : labelHierarchy(label.parent || label.parentId || label.parent_id || label.parentLabel || label.parent_label, seen).split(" > ").filter(Boolean);
   const current = labelName(label);
 
   return [...parents, current].filter(Boolean).join(" > ");
+}
+
+function normalizeLabelName(value) {
+  return String(value || "").trim();
 }
 
 function formatLabelPath(value) {
@@ -296,6 +308,21 @@ function formatLabelPath(value) {
     .map(part => part.trim())
     .filter(Boolean)
     .join(" > ");
+}
+
+function parseLabelPath(value) {
+  return String(value || "")
+    .split(/\r?\n|>/g)
+    .map(normalizeLabelName)
+    .filter(Boolean);
+}
+
+function labelsCollectionPath() {
+  return bomistEndpoints.labelsEndpoint;
+}
+
+function labelsMutationPath() {
+  return labelsCollectionPath().split("?")[0] || "/labels";
 }
 
 function looksLikeOpaqueId(value) {
@@ -574,7 +601,6 @@ function setConnection(message, className = "") {
 }
 
 async function loadOrders() {
-  const settings = readSettings();
   const selectedOrderId = state.selectedOrder ? getOrderId(state.selectedOrder) : loadAppState().selectedOrderId;
   setConnection("Connecting to BOMist...");
   els.ordersList.innerHTML = `<div class="hint">Loading orders...</div>`;
@@ -584,16 +610,7 @@ async function loadOrders() {
 
   try {
     await bomistFetch("/");
-    let payload;
-
-    if (settings.ordersEndpoint.startsWith("/search")) {
-      payload = await bomistFetch(settings.ordersEndpoint, {
-        method: "POST",
-        body: settings.ordersSelector
-      });
-    } else {
-      payload = await bomistFetch(settings.ordersEndpoint);
-    }
+    const payload = await bomistFetch(bomistEndpoints.ordersEndpoint);
 
     state.orders = unwrapCollection(payload);
     await loadParts();
@@ -612,7 +629,7 @@ async function loadOrders() {
     state.filteredOrders = [];
     clearSelection();
     renderOrders();
-    setConnection(`No connection or incompatible endpoint: ${error.message}`, "status-error");
+    setConnection(`No connection or incompatible BOMist API: ${error.message}`, "status-error");
   }
 }
 
@@ -624,7 +641,7 @@ async function loadOrderItems(order) {
   const existingItems = getItems(order);
 
   if (!existingItems.length && orderId) {
-    const path = readSettings().detailsEndpoint.replace("{id}", encodeURIComponent(orderId));
+    const path = bomistEndpoints.detailsEndpoint.replace("{id}", encodeURIComponent(orderId));
     try {
       detailsPayload = await bomistFetch(path);
     } catch {
@@ -668,10 +685,10 @@ async function loadLabels() {
   if (state.labelsById.size) return;
 
   const labelEndpoints = [
-    "/labels?limit=5000",
+    labelsCollectionPath(),
     "/part_labels?limit=5000",
     "/partLabels?limit=5000"
-  ];
+  ].filter((endpoint, index, endpoints) => endpoint && endpoints.indexOf(endpoint) === index);
 
   for (const endpoint of labelEndpoints) {
     try {
@@ -691,6 +708,97 @@ async function loadLabels() {
     } catch {
       state.labelsById = new Map();
     }
+  }
+}
+
+async function refreshLabels() {
+  state.labelsById = new Map();
+  await loadLabels();
+}
+
+function findExistingLabel(name, parentId = "") {
+  const normalizedName = normalizeLabelName(name).toLocaleLowerCase();
+  const normalizedParentId = String(parentId || "");
+
+  return [...state.labelsById.values()].find(label => {
+    return labelName(label).trim().toLocaleLowerCase() === normalizedName &&
+      getLabelParentId(label) === normalizedParentId;
+  });
+}
+
+function addLabelToIndex(label) {
+  const labelData = label?.label && typeof label.label === "object" ? label.label : label;
+  const id = getLabelId(labelData) || getLabelId(label);
+  if (id) state.labelsById.set(id, labelData);
+  return labelData;
+}
+
+async function createSingleLabel(name, parentId) {
+  const payload = await bomistFetch(labelsMutationPath(), {
+    method: "POST",
+    body: JSON.stringify({
+      label: {
+        parentId: parentId || null,
+        name
+      }
+    })
+  });
+
+  const created = addLabelToIndex(payload);
+  const createdId = getLabelId(created);
+  if (createdId) return created;
+
+  await refreshLabels();
+  return findExistingLabel(name, parentId);
+}
+
+function setLabelPathStatus(message, className = "") {
+  els.labelPathStatus.textContent = message;
+  els.labelPathStatus.className = `hint ${className}`.trim();
+}
+
+async function createLabelPath() {
+  const pathParts = parseLabelPath(els.labelPathInput.value);
+
+  if (!pathParts.length) {
+    setLabelPathStatus("Enter at least one label name.", "status-warn");
+    return;
+  }
+
+  els.createLabelPathButton.disabled = true;
+  setLabelPathStatus("Checking existing labels...");
+
+  try {
+    await refreshLabels();
+
+    let parentId = "";
+    let createdCount = 0;
+    let reusedCount = 0;
+
+    for (const name of pathParts) {
+      let label = findExistingLabel(name, parentId);
+
+      if (label) {
+        reusedCount += 1;
+      } else {
+        setLabelPathStatus(`Creating: ${name}...`);
+        label = await createSingleLabel(name, parentId);
+        createdCount += 1;
+      }
+
+      const nextParentId = getLabelId(label);
+      if (!nextParentId) {
+        throw new Error(`BOMist did not return an id for label "${name}".`);
+      }
+      parentId = nextParentId;
+    }
+
+    await refreshLabels();
+    setLabelPathStatus(`Ready: ${pathParts.join(" > ")}. Created ${createdCount}, reused ${reusedCount}.`, "status-ok");
+  } catch (error) {
+    setLabelPathStatus(`Could not create label path: ${error.message}`, "status-error");
+  } finally {
+    els.createLabelPathButton.disabled = false;
   }
 }
 
@@ -720,7 +828,7 @@ function renderOrders() {
   els.ordersCount.textContent = state.filteredOrders.length;
 
   if (!state.filteredOrders.length) {
-    els.ordersList.innerHTML = `<div class="hint">No orders found. Check the selector or endpoint in the integration panel.</div>`;
+    els.ordersList.innerHTML = `<div class="hint">No orders found. Check that BOMist is running and the local API address is correct.</div>`;
     return;
   }
 
@@ -792,7 +900,7 @@ function renderDetails(order) {
   els.selectedOrderMeta.textContent = getOrderMeta(order) || getOrderId(order) || "";
 
   if (!state.selectedItems.length) {
-    els.itemsTable.innerHTML = `<tr><td colspan="8">No items found in this order. Check the details endpoint or the data structure in Swagger.</td></tr>`;
+    els.itemsTable.innerHTML = `<tr><td colspan="8">No items found in this order. Check the order data in BOMist.</td></tr>`;
     els.printButton.disabled = true;
     updateSelectionSummary();
     return;
@@ -944,6 +1052,7 @@ els.repeatByQuantity.addEventListener("change", () => saveAppState());
 els.selectAllItemsButton.addEventListener("click", () => setSelectedItems(() => true));
 els.selectNoItemsButton.addEventListener("click", () => setSelectedItems(() => false));
 els.selectLotItemsButton.addEventListener("click", () => setSelectedItems(item => Boolean(item.lotNumber || item.lotComment)));
+els.createLabelPathButton.addEventListener("click", createLabelPath);
 els.ordersList.addEventListener("click", event => {
   const row = event.target.closest(".order-row");
   if (row) selectOrder(row.dataset.orderId);

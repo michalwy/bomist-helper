@@ -12,7 +12,8 @@ Current main workflow:
 - enrich item rows with part data,
 - choose which item rows from one or more orders should produce labels,
 - clear the shared print selection when needed,
-- print one label per selected item from the shared selection, optionally repeated by quantity.
+- print one label per selected item from the shared selection, optionally repeated by quantity,
+- create BOMist label trees from pasted label paths without duplicating existing parent labels.
 
 The app preserves selected UI state across page refreshes in browser `localStorage`, including the selected order, order filter text, selected item rows grouped by order, and the "repeat by quantity" option.
 
@@ -62,8 +63,10 @@ Default endpoints target BOMist 2.14.x:
 - `GET /purchase_orders?limit=100`
 - `GET /purchase_orders/{id}/items`
 - `GET /parts?limit=5000`
+- `GET /labels?limit=5000`
+- `POST /labels`
 
-The app also has an `Integration` panel where the user can change the API URL and endpoints. These settings are stored in browser `localStorage`.
+The app also has an `Integration` panel where the user can change only the API URL. Endpoint paths are fixed to the BOMist 2.14.x API shape. Settings are stored in browser `localStorage`.
 
 ## Implementation Notes
 
@@ -78,7 +81,8 @@ The app also has an `Integration` panel where the user can change the API URL an
 
 ## Common Change Areas
 
-- New BOMist endpoints: add or adjust fetch logic in `public/app.js`, then update defaults in both `defaultSettings` and `public/index.html`.
+- New BOMist endpoints: add or adjust fixed endpoint constants and fetch logic in `public/app.js`; do not expose endpoint paths as user-editable settings unless explicitly requested.
 - Label content/layout: update `buildLabels()` in `public/app.js` and matching print CSS in `public/styles.css`.
+- Label path creation: update `parseLabelPath()`, `findExistingLabel()`, and `createLabelPath()` in `public/app.js`.
 - UI copy: update `public/index.html` and any runtime messages in `public/app.js`.
 - Persisted UI state: update `defaultAppState`, `loadAppState()`, `getCurrentAppState()`, `saveAppState()`, `applyAppState()`, and item selection restore logic in `public/app.js`.
