@@ -68,7 +68,7 @@ Default endpoints target BOMist 2.14.x:
 - `POST /documents`
 - `PUT /documents/{documentId}`
 - `PUT /purchase_orders/{orderId}/documents/{documentId}`
-- `GET /parts?limit=5000`
+- `GET /parts/{part_id}`
 - `GET /labels?limit=5000`
 - `POST /labels`
 

@@ -25,6 +25,7 @@ const bomistEndpoints = {
   detailsEndpoint: "/purchase_orders/{id}/items",
   orderMutationEndpoint: "/purchase_orders/{orderId}",
   itemMutationEndpoint: "/purchase_orders/{orderId}/items/{itemId}",
+  partDetailsEndpoint: "/parts/{partId}",
   documentsEndpoint: "/documents",
   orderDocumentsEndpoint: "/purchase_orders/{orderId}/documents",
   orderDocumentLinkEndpoint: "/purchase_orders/{orderId}/documents/{documentId}",
@@ -644,13 +645,31 @@ function getItemId(item) {
   return id ? String(id) : "";
 }
 
+function getPartId(value) {
+  if (!value) return "";
+  if (typeof value !== "object") return String(value);
+
+  const part = value.part && typeof value.part === "object" ? value.part : value;
+  const id = part.id || part._id || part.uuid || value.id || value._id || value.uuid;
+  return id ? String(id) : "";
+}
+
+function getItemPartId(item) {
+  const purchaseOrderItem = item.purchase_order_item || item.purchaseOrderItem || item;
+  return getPartId(purchaseOrderItem.part || item.part);
+}
+
 function normalizeItem(item, index, order = state.selectedOrder) {
   const purchaseOrderItem = item.purchase_order_item || item.purchaseOrderItem || item;
-  const partId = purchaseOrderItem.part || item.part;
+  const linkedPart = purchaseOrderItem.part || item.part;
+  const partId = getPartId(linkedPart);
   const knownPart = state.partsById.get(partId) || {};
+  const inlinePart = linkedPart && typeof linkedPart === "object" ? linkedPart : null;
   const part =
     knownPart.part ||
     (Object.keys(knownPart).length ? knownPart : null) ||
+    inlinePart?.part ||
+    inlinePart ||
     item.partSnapshot ||
     item.purchaseItem ||
     item.product ||
@@ -786,7 +805,6 @@ async function loadOrders() {
     const payload = await bomistFetch(bomistEndpoints.ordersEndpoint);
 
     state.orders = unwrapCollection(payload);
-    await loadParts();
     await loadLabels();
     await loadLots();
     filterOrders({ persist: false });
@@ -823,6 +841,7 @@ async function loadOrderItems(order) {
   }
 
   const rawItems = Array.isArray(detailsPayload) ? unwrapCollection(detailsPayload) : getItems(detailsPayload);
+  await loadPartsForItems(rawItems);
   const normalizedItems = rawItems.map((item, index) => normalizeItem(item, index, order));
   state.itemsByOrderId.set(orderId, normalizedItems);
   return normalizedItems;
@@ -887,16 +906,24 @@ async function loadPersistedSelectedOrderItems() {
   }
 }
 
-async function loadParts() {
-  if (state.partsById.size) return;
+async function loadPart(partId) {
+  const id = String(partId || "");
+  if (!id || state.partsById.has(id)) return;
 
   try {
-    const payload = await bomistFetch("/parts?limit=5000");
-    const parts = unwrapCollection(payload);
-    state.partsById = new Map(parts.map(part => [part.part?.id || part.id || part._id, part]).filter(([id]) => id));
+    const path = bomistEndpoints.partDetailsEndpoint.replace("{partId}", encodeURIComponent(id));
+    const part = await bomistFetch(path);
+    state.partsById.set(id, part);
   } catch {
-    state.partsById = new Map();
+    state.partsById.delete(id);
   }
+}
+
+async function loadPartsForItems(items) {
+  const partIds = [...new Set(items.map(getItemPartId).filter(Boolean))]
+    .filter(partId => !state.partsById.has(partId));
+
+  await Promise.all(partIds.map(loadPart));
 }
 
 async function loadLabels() {
@@ -1114,7 +1141,7 @@ function restoreItemSelection(order) {
     return;
   }
 
-  state.selectedItemKeys = new Set(state.selectedItems.map(item => item.key));
+  state.selectedItemKeys = new Set();
   state.selectedItemKeysByOrderId.set(orderId, new Set(state.selectedItemKeys));
 }
 
@@ -1770,7 +1797,10 @@ function printLabels() {
   window.print();
 }
 
-els.refreshButton.addEventListener("click", loadOrders);
+els.refreshButton.addEventListener("click", () => {
+  clearReferenceData();
+  loadOrders();
+});
 els.clearBasketButton.addEventListener("click", clearPrintBasket);
 els.printButton.addEventListener("click", printLabels);
 els.orderSearch.addEventListener("input", filterOrders);

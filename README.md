@@ -31,7 +31,7 @@ The app uses these BOMist 2.14.x endpoints:
 - order list: `GET /purchase_orders?limit=100`
 - order items: `GET /purchase_orders/{id}/items`
 - order item update: `PUT /purchase_orders/{orderId}/items/{itemId}`
-- parts for enriching labels: `GET /parts?limit=5000`
+- parts for enriching labels: `GET /parts/{part_id}` for parts used by loaded order items
 - labels for display and path creation: `GET /labels?limit=5000`
 - label creation: `POST /labels`
 
