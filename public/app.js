@@ -1442,6 +1442,18 @@ function focusAllocationField(container, selector, index) {
   input?.focus();
 }
 
+function addExternalItemRow() {
+  if (!state.selectedOrder) return;
+  saveCurrentCostAllocationDraft({ persist: false });
+  const draft = currentCostAllocationDraft();
+  const newIndex = draft.externalItems.length;
+  draft.externalItems.push({ label: "", value: "" });
+  state.costAllocationByOrderId.set(orderIdString(state.selectedOrder), draft);
+  renderCostAllocationPanel();
+  focusAllocationField(els.externalItemRows, "[data-external-label]", newIndex);
+  saveAppState();
+}
+
 function renderCostAllocationPanel() {
   if (!els.costRows || !state.selectedOrder) return;
 
@@ -1917,15 +1929,7 @@ els.addCostRowButton.addEventListener("click", () => {
   saveAppState();
 });
 els.addExternalItemRowButton.addEventListener("click", () => {
-  if (!state.selectedOrder) return;
-  saveCurrentCostAllocationDraft({ persist: false });
-  const draft = currentCostAllocationDraft();
-  const newIndex = draft.externalItems.length;
-  draft.externalItems.push({ label: "", value: "" });
-  state.costAllocationByOrderId.set(orderIdString(state.selectedOrder), draft);
-  renderCostAllocationPanel();
-  focusAllocationField(els.externalItemRows, "[data-external-label]", newIndex);
-  saveAppState();
+  addExternalItemRow();
 });
 els.applyCostAllocationButton.addEventListener("click", applyCostAllocation);
 els.costRows.addEventListener("input", () => {
@@ -1935,6 +1939,12 @@ els.costRows.addEventListener("input", () => {
 els.externalItemRows.addEventListener("input", () => {
   saveCurrentCostAllocationDraft();
   updateAllocationPreview();
+});
+els.externalItemRows.addEventListener("keydown", event => {
+  const field = event.target.closest("[data-external-label], [data-external-value]");
+  if (event.key !== "Enter" || event.isComposing || !field) return;
+  event.preventDefault();
+  addExternalItemRow();
 });
 els.costRows.addEventListener("click", event => {
   const removeButton = event.target.closest("[data-remove-cost]");
