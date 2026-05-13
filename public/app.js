@@ -637,6 +637,12 @@ function formatUnitPrice(value, currency = "") {
   });
 }
 
+function formatPercent(value) {
+  const numeric = numericValue(value);
+  if (numeric === null || !Number.isFinite(numeric)) return "-";
+  return `${numeric.toFixed(2)}%`;
+}
+
 function getLotDetails(value) {
   if (!value) return { number: "", comment: "" };
   if (typeof value !== "object") {
@@ -1416,6 +1422,8 @@ function buildAllocationRows() {
   });
   const bomistAllocatedCost = bomistAllocatedCents.reduce((sum, cents) => sum + cents, 0) / 100;
   const externalAllocatedCost = externalAllocatedCents.reduce((sum, cents) => sum + cents, 0) / 100;
+  const bomistFinalValue = roundAmount(bomistBaseValue + bomistAllocatedCost, 2);
+  const externalFinalValue = roundAmount(externalBaseValue + externalAllocatedCost, 2);
 
   return {
     costs,
@@ -1428,6 +1436,10 @@ function buildAllocationRows() {
     externalBaseValue,
     bomistAllocatedCost,
     externalAllocatedCost,
+    bomistExtraCostPercent: bomistBaseValue > 0 ? (bomistAllocatedCost / bomistBaseValue) * 100 : null,
+    externalExtraCostPercent: externalBaseValue > 0 ? (externalAllocatedCost / externalBaseValue) * 100 : null,
+    bomistFinalValue,
+    externalFinalValue,
     allocationBaseValue,
     currency
   };
@@ -1487,11 +1499,57 @@ function updateAllocationPreview() {
   const canApply = data.allocationBaseValue > 0 &&
     data.rows.some(row => row.item.itemId) &&
     (data.bomistAllocatedCost > 0 || hasSavedCostAllocation(orderId));
+  const summaryRows = [
+    {
+      label: "BOMist items",
+      initialValue: data.bomistBaseValue,
+      totalSharePercent: data.allocationBaseValue > 0 ? (data.bomistBaseValue / data.allocationBaseValue) * 100 : null,
+      extraCost: data.bomistAllocatedCost,
+      extraCostPercent: data.bomistExtraCostPercent,
+      finalValue: data.bomistFinalValue,
+      hasItems: data.bomistBaseValue > 0
+    },
+    {
+      label: "Invoice-only items",
+      initialValue: data.externalBaseValue,
+      totalSharePercent: data.allocationBaseValue > 0 ? (data.externalBaseValue / data.allocationBaseValue) * 100 : null,
+      extraCost: data.externalAllocatedCost,
+      extraCostPercent: data.externalExtraCostPercent,
+      finalValue: data.externalFinalValue,
+      hasItems: data.externalBaseValue > 0
+    },
+    {
+      label: "Total",
+      initialValue: data.allocationBaseValue,
+      totalSharePercent: data.allocationBaseValue > 0 ? 100 : null,
+      extraCost: data.totalExtraCost,
+      extraCostPercent: data.allocationBaseValue > 0 ? (data.totalExtraCost / data.allocationBaseValue) * 100 : null,
+      finalValue: roundAmount(data.allocationBaseValue + data.totalExtraCost, 2),
+      isTotal: true
+    }
+  ].filter(row => row.isTotal || row.hasItems);
 
   els.allocationSummary.innerHTML = `
-    <div><strong>${escapeHtml(formatMoney(data.totalExtraCost, data.currency))}</strong><span>additional costs</span></div>
-    <div><strong>${escapeHtml(formatMoney(data.bomistBaseValue, data.currency))}</strong><span>BOMist item value</span></div>
-    <div><strong>${escapeHtml(formatMoney(data.externalBaseValue, data.currency))}</strong><span>invoice-only value</span></div>
+    <div class="allocation-summary-table" role="table" aria-label="Order cost summary">
+      <div class="allocation-summary-row allocation-summary-head" role="row">
+        <span role="columnheader">Group</span>
+        <span role="columnheader">Initial value</span>
+        <span role="columnheader">Share of total</span>
+        <span role="columnheader">Extra cost</span>
+        <span role="columnheader">Extra cost %</span>
+        <span role="columnheader">Final value</span>
+      </div>
+      ${summaryRows.map(row => `
+        <div class="allocation-summary-row${row.isTotal ? " allocation-summary-total-row" : ""}" role="row">
+          <strong role="cell">${escapeHtml(row.label)}</strong>
+          <span role="cell">${escapeHtml(formatMoney(row.initialValue, data.currency))}</span>
+          <span role="cell">${escapeHtml(formatPercent(row.totalSharePercent))}</span>
+          <span role="cell">${escapeHtml(formatMoney(row.extraCost, data.currency))}</span>
+          <span role="cell">${escapeHtml(formatPercent(row.extraCostPercent))}</span>
+          <span role="cell">${escapeHtml(formatMoney(row.finalValue, data.currency))}</span>
+        </div>
+      `).join("")}
+    </div>
   `;
 
   if (!data.rows.length) {

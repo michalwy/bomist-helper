@@ -479,27 +479,68 @@ textarea {
 
 .allocation-summary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
-.allocation-summary div {
+.allocation-summary-table {
   display: grid;
-  gap: 3px;
   padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 7px;
   background: var(--surface-muted);
 }
 
-.allocation-summary strong {
-  font-size: 16px;
-}
-
-.allocation-summary span {
+.allocation-summary-head span {
   color: var(--muted);
   font-size: 12px;
   font-weight: 650;
+}
+
+.allocation-summary-table {
+  gap: 0;
+  overflow: auto;
+}
+
+.allocation-summary-row {
+  display: grid;
+  grid-template-columns: minmax(130px, 1.1fr) repeat(5, minmax(92px, 1fr));
+  gap: 10px;
+  align-items: center;
+  min-width: 720px;
+  padding: 7px 0;
+  border-top: 1px solid rgba(23, 32, 38, 0.1);
+}
+
+.allocation-summary-row:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.allocation-summary-row:last-child {
+  padding-bottom: 0;
+}
+
+.allocation-summary-total-row {
+  margin-top: 2px;
+  border-top-color: var(--line);
+}
+
+.allocation-summary-total-row strong,
+.allocation-summary-total-row span {
+  font-weight: 750;
+}
+
+.allocation-summary-row span:not(:first-child),
+.allocation-summary-row strong:not(:first-child) {
+  text-align: right;
+}
+
+.allocation-summary-row strong {
+  font-size: 13px;
+}
+
+.allocation-summary-row span {
+  font-size: 13px;
 }
 
 .allocation-preview {
