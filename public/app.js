@@ -1345,6 +1345,11 @@ function renderAllocationRows(container, rows, template) {
   container.innerHTML = rows.map(template).join("");
 }
 
+function focusAllocationField(container, selector, index) {
+  const input = container.querySelector(`${selector}[data-row-index="${index}"]`);
+  input?.focus();
+}
+
 function renderCostAllocationPanel() {
   if (!els.costRows || !state.selectedOrder) return;
 
@@ -1812,18 +1817,22 @@ els.addCostRowButton.addEventListener("click", () => {
   if (!state.selectedOrder) return;
   saveCurrentCostAllocationDraft({ persist: false });
   const draft = currentCostAllocationDraft();
+  const newIndex = draft.costs.length;
   draft.costs.push({ label: "", amount: "" });
   state.costAllocationByOrderId.set(orderIdString(state.selectedOrder), draft);
   renderCostAllocationPanel();
+  focusAllocationField(els.costRows, "[data-cost-label]", newIndex);
   saveAppState();
 });
 els.addExternalItemRowButton.addEventListener("click", () => {
   if (!state.selectedOrder) return;
   saveCurrentCostAllocationDraft({ persist: false });
   const draft = currentCostAllocationDraft();
+  const newIndex = draft.externalItems.length;
   draft.externalItems.push({ label: "", value: "" });
   state.costAllocationByOrderId.set(orderIdString(state.selectedOrder), draft);
   renderCostAllocationPanel();
+  focusAllocationField(els.externalItemRows, "[data-external-label]", newIndex);
   saveAppState();
 });
 els.applyCostAllocationButton.addEventListener("click", applyCostAllocation);
