@@ -9,6 +9,7 @@ const state = {
   costAllocationByOrderId: new Map(),
   costAllocationDocumentsByOrderId: new Map(),
   costAllocationDataByOrderId: new Map(),
+  expandedStatusGroups: new Map(),
   partsById: new Map(),
   labelsById: new Map(),
   lotsById: new Map()
@@ -425,9 +426,82 @@ function getOrderTitle(order) {
 function getOrderMeta(order) {
   const purchaseOrder = order.purchase_order || order.purchaseOrder || order.order || {};
   const supplier = purchaseOrder.supplier?.name || purchaseOrder.supplierName || order.supplierName;
-  const status = purchaseOrder.status || order.status || order.state;
+  const status = getOrderStatus(order);
   const date = purchaseOrder.orderedOn || purchaseOrder.receivedOn || order.orderedOn || order.created_at;
   return [supplier, status, date].map(displayValue).filter(Boolean).join(" • ");
+}
+
+function getOrderStatus(order) {
+  const purchaseOrder = order.purchase_order || order.purchaseOrder || order.order || {};
+  return purchaseOrder.status || order.status || order.state || "";
+}
+
+function orderStatusLabel(order) {
+  return displayValue(getOrderStatus(order)) || "No status";
+}
+
+function normalizeStatusKey(status) {
+  return String(status || "No status").trim().toLowerCase() || "no status";
+}
+
+function isStatusGroupExpanded(statusKey) {
+  if (state.expandedStatusGroups.has(statusKey)) return state.expandedStatusGroups.get(statusKey);
+  return statusKey === "open";
+}
+
+function getOrderDateValue(order) {
+  const purchaseOrder = order.purchase_order || order.purchaseOrder || order.order || {};
+  const candidates = [
+    purchaseOrder.orderedOn,
+    purchaseOrder.createdAt,
+    purchaseOrder.created_at,
+    purchaseOrder.receivedOn,
+    purchaseOrder.updatedAt,
+    order.orderedOn,
+    order.createdAt,
+    order.created_at,
+    order.receivedOn,
+    order.updatedAt,
+    order.updated_at
+  ];
+  const rawDate = candidates.find(value => displayValue(value));
+  const timestamp = Date.parse(displayValue(rawDate));
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function sortOrdersNewestFirst(orders) {
+  return [...orders].sort((a, b) => {
+    const dateDiff = getOrderDateValue(b) - getOrderDateValue(a);
+    if (dateDiff) return dateDiff;
+    return getOrderTitle(b).localeCompare(getOrderTitle(a), undefined, { numeric: true, sensitivity: "base" });
+  });
+}
+
+function groupedOrdersByStatus(orders) {
+  const groupsByStatus = new Map();
+
+  for (const order of orders) {
+    const label = orderStatusLabel(order);
+    const key = normalizeStatusKey(label);
+    if (!groupsByStatus.has(key)) {
+      groupsByStatus.set(key, {
+        key,
+        label,
+        orders: [],
+        newestDate: 0
+      });
+    }
+
+    const group = groupsByStatus.get(key);
+    group.orders.push(order);
+    group.newestDate = Math.max(group.newestDate, getOrderDateValue(order));
+  }
+
+  return [...groupsByStatus.values()].sort((a, b) => {
+    if (a.key === "open" && b.key !== "open") return -1;
+    if (b.key === "open" && a.key !== "open") return 1;
+    return b.newestDate - a.newestDate || a.label.localeCompare(b.label, undefined, { sensitivity: "base" });
+  });
 }
 
 function getItems(order) {
@@ -804,7 +878,7 @@ async function loadOrders() {
     await bomistFetch("/");
     const payload = await bomistFetch(bomistEndpoints.ordersEndpoint);
 
-    state.orders = unwrapCollection(payload);
+    state.orders = sortOrdersNewestFirst(unwrapCollection(payload));
     await loadLabels();
     await loadLots();
     filterOrders({ persist: false });
@@ -1077,19 +1151,37 @@ function renderOrders() {
     return;
   }
 
-  els.ordersList.innerHTML = state.filteredOrders.map(order => {
-    const id = getOrderId(order);
-    const orderId = String(id || "");
-    const active = state.selectedOrder && String(getOrderId(state.selectedOrder)) === String(id) ? " active" : "";
-    const selectedCount = selectedItemsForOrder(orderId).length;
+  els.ordersList.innerHTML = groupedOrdersByStatus(state.filteredOrders).map(group => {
+    const expanded = isStatusGroupExpanded(group.key);
+    const ordersHtml = group.orders.map(order => {
+      const id = getOrderId(order);
+      const orderId = String(id || "");
+      const active = state.selectedOrder && String(getOrderId(state.selectedOrder)) === String(id) ? " active" : "";
+      const selectedCount = selectedItemsForOrder(orderId).length;
+      return `
+        <button class="order-row${active}" data-order-id="${escapeHtml(orderId)}">
+          <span class="order-row-title">
+            <strong>${escapeHtml(getOrderTitle(order))}</strong>
+            ${selectedCount ? `<span class="order-selection-count">${selectedCount}</span>` : ""}
+          </span>
+          <span>${escapeHtml(getOrderMeta(order) || String(id || ""))}</span>
+        </button>
+      `;
+    }).join("");
+
     return `
-      <button class="order-row${active}" data-order-id="${escapeHtml(orderId)}">
-        <span class="order-row-title">
-          <strong>${escapeHtml(getOrderTitle(order))}</strong>
-          ${selectedCount ? `<span class="order-selection-count">${selectedCount}</span>` : ""}
-        </span>
-        <span>${escapeHtml(getOrderMeta(order) || String(id || ""))}</span>
-      </button>
+      <section class="order-status-group">
+        <button class="order-status-toggle" type="button" data-status-key="${escapeHtml(group.key)}" aria-expanded="${expanded}">
+          <span>
+            <span class="order-status-arrow" aria-hidden="true">${expanded ? "▾" : "▸"}</span>
+            <strong>${escapeHtml(group.label)}</strong>
+          </span>
+          <span class="order-status-count">${group.orders.length}</span>
+        </button>
+        <div class="order-status-items${expanded ? "" : " hidden"}">
+          ${ordersHtml}
+        </div>
+      </section>
     `;
   }).join("");
 }
@@ -1866,6 +1958,14 @@ els.externalItemRows.addEventListener("click", event => {
 });
 els.createLabelPathButton.addEventListener("click", createLabelPath);
 els.ordersList.addEventListener("click", event => {
+  const toggle = event.target.closest(".order-status-toggle");
+  if (toggle) {
+    const statusKey = toggle.dataset.statusKey;
+    state.expandedStatusGroups.set(statusKey, !isStatusGroupExpanded(statusKey));
+    renderOrders();
+    return;
+  }
+
   const row = event.target.closest(".order-row");
   if (row) selectOrder(row.dataset.orderId);
 });

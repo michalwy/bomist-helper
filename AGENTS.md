@@ -55,7 +55,13 @@ node --check public/app.js
 
 When testing with real data, BOMist must be running locally with API enabled in `Settings > API`.
 
-When an agent needs the local app server, first try to reuse `http://localhost:3000`. If port 3000 responds, verify it is BOMist Helper before starting another server. Only start on another port after confirming port 3000 is occupied by a different app or cannot be used. When an agent starts the local app server during work, leave it running at the end unless the user explicitly asks to stop it.
+Port `3000` is reserved for the user's own running server. Agents must not use `http://localhost:3000` for testing, even if it responds with BOMist Helper. When an agent needs a local app server, start a separate server on another available port, for example:
+
+```bash
+PORT=3001 npm start
+```
+
+Use that agent-owned port for browser checks and local testing. When an agent starts a local app server for its own checks, stop that server before finishing unless the user explicitly asks to keep it running.
 
 ## BOMist API Assumptions
 
@@ -85,7 +91,7 @@ When changing BOMist API payloads, never guess request shapes from returned obje
 - Cost distribution drafts are local UI state while editing. Applying a distribution must update only existing BOMist order item unit price and total value; invoice-only values must never be posted as BOMist items. Persist allocation metadata in a BOMist document attached to the order, not in custom fields. The helper document is named `BOMist Helper Data - <order number>`, uses category `BOMist Helper`, stores JSON in `document.notes`, and is linked with `PUT /purchase_orders/{orderId}/documents/{documentId}`.
 - Be careful with print styles in `public/styles.css`; `@media print` is part of the primary feature, not decoration.
 - Do not hard-code private workspace paths, user data, or specific order numbers in the app.
-- If you start `npm start` for the user, keep that server running after finishing so the app remains available locally.
+- If you start `npm start` or another local app server for testing, stop that agent-owned server before finishing unless the user explicitly asks to keep it running.
 - When changing workflows, defaults, storage keys, API assumptions, setup, verification steps, or common change areas, check whether `AGENTS.md` should be updated in the same change and update it when needed.
 
 ## Common Change Areas

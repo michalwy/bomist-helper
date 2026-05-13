@@ -191,6 +191,63 @@ textarea {
   overflow: auto;
 }
 
+.order-status-group {
+  display: grid;
+  gap: 7px;
+}
+
+.order-status-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 4px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+
+.order-status-toggle > span:first-child {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 7px;
+}
+
+.order-status-toggle strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.order-status-arrow {
+  width: 14px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.order-status-count {
+  flex: 0 0 auto;
+  min-width: 24px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.order-status-items {
+  display: grid;
+  gap: 8px;
+}
+
 .order-row {
   display: grid;
   gap: 4px;
