@@ -6,6 +6,7 @@ const state = {
   selectedItemKeys: new Set(),
   itemsByOrderId: new Map(),
   selectedItemKeysByOrderId: new Map(),
+  costAllocationByOrderId: new Map(),
   partsById: new Map(),
   labelsById: new Map(),
   lotsById: new Map()
@@ -20,6 +21,7 @@ const defaultSettings = {
 const bomistEndpoints = {
   ordersEndpoint: "/purchase_orders?limit=100",
   detailsEndpoint: "/purchase_orders/{id}/items",
+  itemMutationEndpoint: "/purchase_orders/{orderId}/items/{itemId}",
   labelsEndpoint: "/labels?limit=5000"
 };
 
@@ -29,7 +31,8 @@ const defaultAppState = {
   repeatByQuantity: false,
   selectedItemOrderId: "",
   selectedItemKeys: [],
-  selectedItemKeysByOrderId: {}
+  selectedItemKeysByOrderId: {},
+  costAllocationByOrderId: {}
 };
 
 const els = {
@@ -55,6 +58,14 @@ const els = {
   selectAllItemsButton: document.querySelector("#selectAllItemsButton"),
   selectNoItemsButton: document.querySelector("#selectNoItemsButton"),
   selectLotItemsButton: document.querySelector("#selectLotItemsButton"),
+  costRows: document.querySelector("#costRows"),
+  externalItemRows: document.querySelector("#externalItemRows"),
+  addCostRowButton: document.querySelector("#addCostRowButton"),
+  addExternalItemRowButton: document.querySelector("#addExternalItemRowButton"),
+  allocationSummary: document.querySelector("#allocationSummary"),
+  allocationPreview: document.querySelector("#allocationPreview"),
+  applyCostAllocationButton: document.querySelector("#applyCostAllocationButton"),
+  costAllocationStatus: document.querySelector("#costAllocationStatus"),
   printArea: document.querySelector("#printArea")
 };
 
@@ -113,6 +124,43 @@ function serializeSelectionMap() {
   );
 }
 
+function defaultCostAllocationDraft() {
+  return {
+    costs: [{ label: "Delivery", amount: "" }],
+    externalItems: []
+  };
+}
+
+function loadPersistedCostAllocationMap(appState = loadAppState()) {
+  const entries = appState.costAllocationByOrderId && typeof appState.costAllocationByOrderId === "object"
+    ? Object.entries(appState.costAllocationByOrderId)
+    : [];
+
+  return new Map(entries.map(([orderId, draft]) => [String(orderId), normalizeCostAllocationDraft(draft)]));
+}
+
+function normalizeCostAllocationDraft(draft) {
+  const normalized = draft && typeof draft === "object" ? draft : {};
+  const costs = Array.isArray(normalized.costs)
+    ? normalized.costs.map(row => ({
+      label: String(row?.label || ""),
+      amount: String(row?.amount || "")
+    }))
+    : defaultCostAllocationDraft().costs;
+  const externalItems = Array.isArray(normalized.externalItems)
+    ? normalized.externalItems.map(row => ({ value: String(row?.value || "") }))
+    : [];
+
+  return {
+    costs: costs.length ? costs : defaultCostAllocationDraft().costs,
+    externalItems
+  };
+}
+
+function serializeCostAllocationMap() {
+  return Object.fromEntries([...state.costAllocationByOrderId.entries()]);
+}
+
 function getCurrentAppState() {
   const selectedOrderId = state.selectedOrder ? orderIdString(state.selectedOrder) : "";
   const selectedItemKeysByOrderId = serializeSelectionMap();
@@ -122,7 +170,8 @@ function getCurrentAppState() {
     repeatByQuantity: els.repeatByQuantity.checked,
     selectedItemOrderId: selectedOrderId,
     selectedItemKeys: selectedOrderId ? [...(state.selectedItemKeysByOrderId.get(selectedOrderId) || new Set())] : [],
-    selectedItemKeysByOrderId
+    selectedItemKeysByOrderId,
+    costAllocationByOrderId: serializeCostAllocationMap()
   };
 }
 
@@ -134,6 +183,7 @@ function applyAppState(appState) {
   els.orderSearch.value = appState.orderSearch || "";
   els.repeatByQuantity.checked = Boolean(appState.repeatByQuantity);
   state.selectedItemKeysByOrderId = loadPersistedSelectionMap(appState);
+  state.costAllocationByOrderId = loadPersistedCostAllocationMap(appState);
 }
 
 function applySettings(settings) {
@@ -406,22 +456,38 @@ function numericValue(value) {
   return null;
 }
 
-function formatMoney(value, currency = "") {
+function formatMoney(value, currency = "", options = {}) {
   if (value === undefined || value === null || value === "") return "";
   const numeric = numericValue(value);
   if (numeric === null) return displayValue(value);
+  const minimumFractionDigits = options.minimumFractionDigits ?? 2;
+  const maximumFractionDigits = options.maximumFractionDigits ?? 2;
+
   if (currency) {
     try {
       return new Intl.NumberFormat(undefined, {
         style: "currency",
         currency,
-        currencyDisplay: "narrowSymbol"
+        currencyDisplay: "narrowSymbol",
+        minimumFractionDigits,
+        maximumFractionDigits
       }).format(numeric);
     } catch {
-      return `${numeric.toFixed(2)} ${currency}`;
+      return `${numeric.toFixed(maximumFractionDigits)} ${currency}`;
     }
   }
-  return numeric.toFixed(2);
+
+  return new Intl.NumberFormat(undefined, {
+    minimumFractionDigits,
+    maximumFractionDigits
+  }).format(numeric);
+}
+
+function formatUnitPrice(value, currency = "") {
+  return formatMoney(value, currency, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 6
+  });
 }
 
 function getLotDetails(value) {
@@ -492,6 +558,18 @@ function getItemKey(item, index) {
     item.uuid;
 
   return id ? String(id) : `row-${index + 1}`;
+}
+
+function getItemId(item) {
+  const purchaseOrderItem = item.purchase_order_item || item.purchaseOrderItem || item;
+  const id = purchaseOrderItem.id ||
+    purchaseOrderItem._id ||
+    purchaseOrderItem.uuid ||
+    item.id ||
+    item._id ||
+    item.uuid;
+
+  return id ? String(id) : "";
 }
 
 function normalizeItem(item, index, order = state.selectedOrder) {
@@ -566,13 +644,17 @@ function normalizeItem(item, index, order = state.selectedOrder) {
     item.totalPrice ??
     item.extendedPrice;
   const unitPrice = numericValue(price);
-  const computedValue = numericValue(explicitValue) === null && unitPrice !== null ? unitPrice * normalizedQuantity : explicitValue;
+  const explicitValueNumber = numericValue(explicitValue);
+  const computedValue = explicitValueNumber === null && unitPrice !== null ? unitPrice * normalizedQuantity : explicitValue;
+  const computedValueNumber = numericValue(computedValue);
+  const lineValue = computedValueNumber === null ? null : roundAmount(computedValueNumber, 2);
   const lotDetails = firstLotDetails(purchaseOrderItem.lot, item.lot, deepFind(item, ["lot", "batch"]));
   const status = purchaseOrderItem.status || deepFind(item, ["status", "state", "receivedStatus"]) || "";
   const orderDetails = getOrderLabelDetails(order);
 
   return {
     key: getItemKey(item, index),
+    itemId: getItemId(item),
     raw: item,
     index: index + 1,
     name: String(description),
@@ -583,8 +665,11 @@ function normalizeItem(item, index, order = state.selectedOrder) {
     manufacturer,
     supplier: displayValue(supplier) || displayValue(orderSupplier),
     quantity: normalizedQuantity,
-    price: formatMoney(price, currency),
-    value: formatMoney(computedValue, currency),
+    currency,
+    unitPrice,
+    lineValue,
+    price: formatUnitPrice(price, currency),
+    value: formatMoney(lineValue, currency),
     lot: [lotDetails.number, lotDetails.comment].filter(Boolean).join(" - "),
     lotNumber: lotDetails.number,
     lotComment: lotDetails.comment,
@@ -856,6 +941,7 @@ function clearSelection({ persist = false } = {}) {
   els.emptyState.classList.remove("hidden");
   els.orderDetails.classList.add("hidden");
   els.itemsTable.innerHTML = "";
+  renderCostAllocationPanel();
   els.printButton.disabled = true;
   updateSelectionSummary();
   renderOrders();
@@ -903,6 +989,7 @@ function renderDetails(order) {
     els.itemsTable.innerHTML = `<tr><td colspan="8">No items found in this order. Check the order data in BOMist.</td></tr>`;
     els.printButton.disabled = true;
     updateSelectionSummary();
+    renderCostAllocationPanel();
     return;
   }
 
@@ -923,6 +1010,345 @@ function renderDetails(order) {
     </tr>
   `).join("");
   updateSelectionSummary();
+  renderCostAllocationPanel();
+}
+
+function currentCostAllocationDraft() {
+  if (!state.selectedOrder) return defaultCostAllocationDraft();
+  const orderId = orderIdString(state.selectedOrder);
+  if (!state.costAllocationByOrderId.has(orderId)) {
+    state.costAllocationByOrderId.set(orderId, defaultCostAllocationDraft());
+  }
+  return normalizeCostAllocationDraft(state.costAllocationByOrderId.get(orderId));
+}
+
+function readCostAllocationDraftFromDom() {
+  return normalizeCostAllocationDraft({
+    costs: [...els.costRows.querySelectorAll(".allocation-row")].map(row => ({
+      label: row.querySelector("[data-cost-label]")?.value || "",
+      amount: row.querySelector("[data-cost-amount]")?.value || ""
+    })),
+    externalItems: [...els.externalItemRows.querySelectorAll(".allocation-row")].map(row => ({
+      value: row.querySelector("[data-external-value]")?.value || ""
+    }))
+  });
+}
+
+function saveCurrentCostAllocationDraft({ persist = true } = {}) {
+  if (!state.selectedOrder) return;
+  state.costAllocationByOrderId.set(orderIdString(state.selectedOrder), readCostAllocationDraftFromDom());
+  if (persist) saveAppState();
+}
+
+function parsePositiveAmount(value) {
+  const numeric = numericValue(value);
+  return numeric !== null && numeric > 0 ? numeric : 0;
+}
+
+function roundAmount(value, precision = 2) {
+  const factor = 10 ** precision;
+  return Math.round((value + Number.EPSILON) * factor) / factor;
+}
+
+function centsValue(value) {
+  return Math.round((Number(value) + Number.EPSILON) * 100);
+}
+
+function distributeCents(totalCents, participants) {
+  if (!totalCents || !participants.length) return participants.map(() => 0);
+
+  const baseTotal = participants.reduce((sum, participant) => sum + participant.baseValue, 0);
+  if (!baseTotal) return participants.map(() => 0);
+
+  const allocations = participants.map((participant, index) => {
+    const exactCents = totalCents * (participant.baseValue / baseTotal);
+    const floorCents = Math.floor(exactCents);
+    return {
+      index,
+      floorCents,
+      remainder: exactCents - floorCents,
+      baseValue: participant.baseValue
+    };
+  });
+  const allocatedFloorCents = allocations.reduce((sum, allocation) => sum + allocation.floorCents, 0);
+  let remainingCents = totalCents - allocatedFloorCents;
+  const sortedByRemainder = [...allocations].sort((a, b) => {
+    if (b.remainder !== a.remainder) return b.remainder - a.remainder;
+    if (b.baseValue !== a.baseValue) return b.baseValue - a.baseValue;
+    return a.index - b.index;
+  });
+
+  for (let index = 0; index < remainingCents; index += 1) {
+    sortedByRemainder[index % sortedByRemainder.length].floorCents += 1;
+  }
+
+  return allocations
+    .sort((a, b) => a.index - b.index)
+    .map(allocation => allocation.floorCents);
+}
+
+function buildAllocationRows() {
+  const draft = currentCostAllocationDraft();
+  const costs = draft.costs.map(row => ({
+    ...row,
+    amountNumber: parsePositiveAmount(row.amount)
+  }));
+  const externalItems = draft.externalItems.map(row => ({
+    ...row,
+    valueNumber: parsePositiveAmount(row.value)
+  }));
+  const bomistItems = state.selectedItems.map(item => ({
+    item,
+    baseValue: item.lineValue,
+    quantity: item.quantity || 1
+  }));
+  const usableBomistItems = bomistItems.filter(row => row.baseValue !== null && row.baseValue !== undefined && row.baseValue >= 0);
+  const totalExtraCost = costs.reduce((sum, row) => sum + row.amountNumber, 0);
+  const bomistBaseValue = usableBomistItems.reduce((sum, row) => sum + row.baseValue, 0);
+  const externalBaseValue = externalItems.reduce((sum, row) => sum + row.valueNumber, 0);
+  const allocationBaseValue = bomistBaseValue + externalBaseValue;
+  const currency = state.selectedItems.find(item => item.currency)?.currency || "";
+  const participants = [
+    ...usableBomistItems.map(row => ({ type: "bomist", baseValue: row.baseValue })),
+    ...externalItems
+      .filter(row => row.valueNumber > 0)
+      .map(row => ({ type: "external", baseValue: row.valueNumber }))
+  ];
+  const participantAllocatedCents = distributeCents(centsValue(totalExtraCost), participants);
+  const bomistAllocatedCents = participantAllocatedCents.slice(0, usableBomistItems.length);
+  const externalAllocatedCents = participantAllocatedCents.slice(usableBomistItems.length);
+  const rows = usableBomistItems.map((row, index) => {
+    const share = allocationBaseValue > 0 ? row.baseValue / allocationBaseValue : 0;
+    const allocatedCost = (bomistAllocatedCents[index] || 0) / 100;
+    const adjustedValue = roundAmount(row.baseValue + allocatedCost, 2);
+    const adjustedUnitPrice = row.quantity > 0 ? adjustedValue / row.quantity : adjustedValue;
+    return {
+      ...row,
+      share,
+      allocatedCost,
+      adjustedValue,
+      adjustedUnitPrice: roundAmount(adjustedUnitPrice, 6)
+    };
+  });
+  const bomistAllocatedCost = bomistAllocatedCents.reduce((sum, cents) => sum + cents, 0) / 100;
+  const externalAllocatedCost = externalAllocatedCents.reduce((sum, cents) => sum + cents, 0) / 100;
+
+  return {
+    costs,
+    externalItems,
+    rows,
+    skippedItems: state.selectedItems.length - usableBomistItems.length,
+    totalExtraCost,
+    bomistBaseValue,
+    externalBaseValue,
+    bomistAllocatedCost,
+    externalAllocatedCost,
+    allocationBaseValue,
+    currency
+  };
+}
+
+function renderAllocationRows(container, rows, template) {
+  container.innerHTML = rows.map(template).join("");
+}
+
+function renderCostAllocationPanel() {
+  if (!els.costRows || !state.selectedOrder) return;
+
+  const draft = currentCostAllocationDraft();
+  renderAllocationRows(els.costRows, draft.costs, (row, index) => `
+    <div class="allocation-row">
+      <input type="text" data-cost-label data-row-index="${index}" value="${escapeHtml(row.label)}" aria-label="Cost label" placeholder="Cost label">
+      <input type="text" inputmode="decimal" data-cost-amount data-row-index="${index}" value="${escapeHtml(row.amount)}" aria-label="Cost amount" placeholder="0.00">
+      <button class="text-button" type="button" data-remove-cost="${index}" ${draft.costs.length <= 1 ? "disabled" : ""}>Remove</button>
+    </div>
+  `);
+  renderAllocationRows(els.externalItemRows, draft.externalItems, (row, index) => `
+    <div class="allocation-row">
+      <input type="text" inputmode="decimal" data-external-value data-row-index="${index}" value="${escapeHtml(row.value)}" aria-label="Invoice-only item value" placeholder="0.00">
+      <button class="text-button" type="button" data-remove-external="${index}">Remove</button>
+    </div>
+  `);
+
+  if (!draft.externalItems.length) {
+    els.externalItemRows.innerHTML = `<p class="hint compact-hint">No invoice-only rows added.</p>`;
+  }
+
+  updateAllocationPreview();
+}
+
+function updateAllocationPreview() {
+  if (!state.selectedOrder || !els.allocationPreview) return;
+  const data = buildAllocationRows();
+  const canApply = data.totalExtraCost > 0 && data.allocationBaseValue > 0 && data.bomistAllocatedCost > 0 && data.rows.some(row => row.item.itemId);
+
+  els.allocationSummary.innerHTML = `
+    <div><strong>${escapeHtml(formatMoney(data.totalExtraCost, data.currency))}</strong><span>additional costs</span></div>
+    <div><strong>${escapeHtml(formatMoney(data.bomistBaseValue, data.currency))}</strong><span>BOMist item value</span></div>
+    <div><strong>${escapeHtml(formatMoney(data.externalBaseValue, data.currency))}</strong><span>invoice-only value</span></div>
+  `;
+
+  if (!data.rows.length) {
+    els.allocationPreview.innerHTML = `<p class="hint">No order item has a numeric value to allocate costs against.</p>`;
+  } else {
+    els.allocationPreview.innerHTML = `
+      <table>
+        <thead>
+          <tr>
+            <th>Catalog number</th>
+            <th class="numeric">Base value</th>
+            <th class="numeric">Share</th>
+            <th class="numeric">Added cost</th>
+            <th class="numeric">New unit price</th>
+            <th class="numeric">New value</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${data.rows.map(row => `
+            <tr>
+              <td><span class="item-name"><strong>${escapeHtml(row.item.catalogNumber || "-")}</strong><small>${escapeHtml(row.item.description || "-")}</small></span></td>
+              <td class="numeric">${escapeHtml(formatMoney(row.baseValue, data.currency))}</td>
+              <td class="numeric">${(row.share * 100).toFixed(2)}%</td>
+              <td class="numeric">${escapeHtml(formatMoney(row.allocatedCost, data.currency))}</td>
+              <td class="numeric">${escapeHtml(formatUnitPrice(row.adjustedUnitPrice, data.currency))}</td>
+              <td class="numeric">${escapeHtml(formatMoney(row.adjustedValue, data.currency))}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    `;
+  }
+
+  els.applyCostAllocationButton.disabled = !canApply;
+  if (data.skippedItems) {
+    setCostAllocationStatus(`${data.skippedItems} item(s) without numeric value are skipped.`, "status-warn");
+  } else if (!data.totalExtraCost) {
+    setCostAllocationStatus("Enter at least one additional cost amount.", "");
+  } else if (!data.allocationBaseValue) {
+    setCostAllocationStatus("Enter item values greater than zero before applying costs.", "status-warn");
+  } else if (!data.bomistAllocatedCost) {
+    setCostAllocationStatus("All additional costs are assigned to invoice-only values; nothing to update in BOMist.", "status-warn");
+  } else {
+    setCostAllocationStatus(`Ready to update BOMist item prices. BOMist share: ${formatMoney(data.bomistAllocatedCost, data.currency)}.`, "status-ok");
+  }
+}
+
+function setCostAllocationStatus(message, className = "") {
+  els.costAllocationStatus.textContent = message;
+  els.costAllocationStatus.className = `hint ${className}`.trim();
+}
+
+function pricingMoney(value, currency, existingValue) {
+  const existingCurrency = displayValue(existingValue?.currency);
+  return {
+    value,
+    currency: currency || existingCurrency || "USD"
+  };
+}
+
+function purchaseOrderItemProductPayload(product = {}) {
+  return {
+    sku: displayValue(product.sku),
+    ...(product.url ? { url: displayValue(product.url) } : {})
+  };
+}
+
+function purchaseOrderItemPayload(item, adjusted) {
+  const rawItem = item.raw || {};
+  const purchaseOrderItem = rawItem.purchase_order_item || rawItem.purchaseOrderItem || rawItem;
+  const existingPricing = purchaseOrderItem.pricing || rawItem.pricing || {};
+  const currency = adjusted.item.currency ||
+    displayValue(existingPricing.unitPrice?.currency) ||
+    displayValue(existingPricing.totalPrice?.currency) ||
+    displayValue(existingPricing.total?.currency);
+  const updatedItem = {
+    ...(purchaseOrderItem.part ? { part: displayValue(purchaseOrderItem.part) } : {}),
+    ...(purchaseOrderItem.status ? { status: displayValue(purchaseOrderItem.status) } : {}),
+    ...(purchaseOrderItem.storage ? { storage: displayValue(purchaseOrderItem.storage) } : {}),
+    ...(purchaseOrderItem.receivedOn ? { receivedOn: displayValue(purchaseOrderItem.receivedOn) } : {}),
+    ...(purchaseOrderItem.lot ? { lot: displayValue(purchaseOrderItem.lot) } : {}),
+    product: purchaseOrderItemProductPayload(purchaseOrderItem.product || rawItem.product || {}),
+    pricing: {
+      ...(existingPricing.qty !== undefined ? { qty: existingPricing.qty } : { qty: adjusted.item.quantity }),
+      unitPrice: pricingMoney(adjusted.adjustedUnitPrice, currency, existingPricing.unitPrice),
+      totalPrice: pricingMoney(adjusted.adjustedValue, currency, existingPricing.totalPrice || existingPricing.total)
+    }
+  };
+
+  return {
+    wrapped: {
+      purchase_order_item: updatedItem
+    },
+    direct: updatedItem
+  };
+}
+
+async function tryUpdateBomistOrderItem(path, payloads) {
+  const attempts = [
+    { method: "PUT", body: payloads.wrapped },
+    { method: "PUT", body: payloads.direct }
+  ];
+  const errors = [];
+
+  for (const attempt of attempts) {
+    try {
+      return await bomistFetch(path, {
+        method: attempt.method,
+        body: JSON.stringify(attempt.body)
+      });
+    } catch (error) {
+      errors.push(`${attempt.method}: ${error.message}`);
+    }
+  }
+
+  throw new Error(errors.join("; "));
+}
+
+function buildItemMutationPath(orderId, itemId) {
+  return bomistEndpoints.itemMutationEndpoint
+    .replace("{orderId}", encodeURIComponent(orderId))
+    .replace("{itemId}", encodeURIComponent(itemId));
+}
+
+async function updateBomistOrderItem(orderId, row) {
+  const path = buildItemMutationPath(orderId, row.item.itemId);
+  return {
+    path,
+    result: await tryUpdateBomistOrderItem(path, purchaseOrderItemPayload(row.item, row))
+  };
+}
+
+async function applyCostAllocation() {
+  if (!state.selectedOrder) return;
+  saveCurrentCostAllocationDraft();
+  const orderId = orderIdString(state.selectedOrder);
+  const data = buildAllocationRows();
+  const updateRows = data.rows.filter(row => row.item.itemId);
+
+  if (!data.totalExtraCost || !data.allocationBaseValue || !data.bomistAllocatedCost || !updateRows.length) {
+    updateAllocationPreview();
+    return;
+  }
+
+  els.applyCostAllocationButton.disabled = true;
+  setCostAllocationStatus(`Updating ${updateRows.length} BOMist item(s)...`);
+
+  try {
+    for (const row of updateRows) {
+      await updateBomistOrderItem(orderId, row);
+    }
+
+    state.costAllocationByOrderId.set(orderId, defaultCostAllocationDraft());
+    saveAppState();
+    state.itemsByOrderId.delete(orderId);
+    state.selectedItems = await loadOrderItems(state.selectedOrder);
+    restoreItemSelection(state.selectedOrder);
+    renderDetails(state.selectedOrder);
+    setCostAllocationStatus(`Updated ${updateRows.length} BOMist item(s). Draft values were cleared.`, "status-ok");
+  } catch (error) {
+    updateAllocationPreview();
+    setCostAllocationStatus(`Could not update BOMist items: ${error.message}`, "status-error");
+  }
 }
 
 function selectedItems() {
@@ -1052,6 +1478,53 @@ els.repeatByQuantity.addEventListener("change", () => saveAppState());
 els.selectAllItemsButton.addEventListener("click", () => setSelectedItems(() => true));
 els.selectNoItemsButton.addEventListener("click", () => setSelectedItems(() => false));
 els.selectLotItemsButton.addEventListener("click", () => setSelectedItems(item => Boolean(item.lotNumber || item.lotComment)));
+els.addCostRowButton.addEventListener("click", () => {
+  if (!state.selectedOrder) return;
+  saveCurrentCostAllocationDraft({ persist: false });
+  const draft = currentCostAllocationDraft();
+  draft.costs.push({ label: "", amount: "" });
+  state.costAllocationByOrderId.set(orderIdString(state.selectedOrder), draft);
+  renderCostAllocationPanel();
+  saveAppState();
+});
+els.addExternalItemRowButton.addEventListener("click", () => {
+  if (!state.selectedOrder) return;
+  saveCurrentCostAllocationDraft({ persist: false });
+  const draft = currentCostAllocationDraft();
+  draft.externalItems.push({ value: "" });
+  state.costAllocationByOrderId.set(orderIdString(state.selectedOrder), draft);
+  renderCostAllocationPanel();
+  saveAppState();
+});
+els.applyCostAllocationButton.addEventListener("click", applyCostAllocation);
+els.costRows.addEventListener("input", () => {
+  saveCurrentCostAllocationDraft();
+  updateAllocationPreview();
+});
+els.externalItemRows.addEventListener("input", () => {
+  saveCurrentCostAllocationDraft();
+  updateAllocationPreview();
+});
+els.costRows.addEventListener("click", event => {
+  const removeButton = event.target.closest("[data-remove-cost]");
+  if (!removeButton || !state.selectedOrder) return;
+  saveCurrentCostAllocationDraft({ persist: false });
+  const draft = currentCostAllocationDraft();
+  draft.costs.splice(Number(removeButton.dataset.removeCost), 1);
+  state.costAllocationByOrderId.set(orderIdString(state.selectedOrder), normalizeCostAllocationDraft(draft));
+  renderCostAllocationPanel();
+  saveAppState();
+});
+els.externalItemRows.addEventListener("click", event => {
+  const removeButton = event.target.closest("[data-remove-external]");
+  if (!removeButton || !state.selectedOrder) return;
+  saveCurrentCostAllocationDraft({ persist: false });
+  const draft = currentCostAllocationDraft();
+  draft.externalItems.splice(Number(removeButton.dataset.removeExternal), 1);
+  state.costAllocationByOrderId.set(orderIdString(state.selectedOrder), normalizeCostAllocationDraft(draft));
+  renderCostAllocationPanel();
+  saveAppState();
+});
 els.createLabelPathButton.addEventListener("click", createLabelPath);
 els.ordersList.addEventListener("click", event => {
   const row = event.target.closest(".order-row");

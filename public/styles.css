@@ -355,6 +355,126 @@ textarea {
   overflow: auto;
 }
 
+.cost-allocation-panel {
+  display: grid;
+  gap: 16px;
+  padding: 18px 20px 22px;
+  border-top: 1px solid var(--line);
+}
+
+.subsection-header,
+.compact-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.subsection-header h3,
+.compact-header h4 {
+  margin: 0;
+}
+
+.subsection-header h3 {
+  font-size: 17px;
+}
+
+.compact-header h4 {
+  font-size: 13px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.allocation-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.allocation-block {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.allocation-rows {
+  display: grid;
+  gap: 8px;
+}
+
+.allocation-row {
+  display: grid;
+  align-items: start;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 0.8fr) auto;
+  gap: 8px;
+}
+
+#externalItemRows .allocation-row {
+  display: flex;
+  align-items: start;
+}
+
+.allocation-row .text-button {
+  flex: 0 0 auto;
+  width: max-content;
+  white-space: nowrap;
+}
+
+#externalItemRows .allocation-row input {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.allocation-row .text-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.allocation-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.allocation-summary div {
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-muted);
+}
+
+.allocation-summary strong {
+  font-size: 16px;
+}
+
+.allocation-summary span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.allocation-preview {
+  max-height: 360px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+
+.allocation-preview table {
+  min-width: 820px;
+}
+
+.allocation-preview th,
+.allocation-preview td {
+  padding: 10px 12px;
+}
+
+.compact-hint {
+  margin: 0;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -455,6 +575,24 @@ td {
 
   .details {
     min-height: auto;
+  }
+
+  .subsection-header,
+  .allocation-grid,
+  .allocation-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .subsection-header {
+    display: grid;
+  }
+
+  .allocation-row {
+    grid-template-columns: 1fr;
+  }
+
+  #externalItemRows .allocation-row {
+    display: flex;
   }
 }
 

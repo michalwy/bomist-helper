@@ -10,12 +10,13 @@ Current main workflow:
 - select one order,
 - load its items,
 - enrich item rows with part data,
+- distribute invoice-level additional costs across BOMist order items while letting invoice-only item values participate in the proportional split,
 - choose which item rows from one or more orders should produce labels,
 - clear the shared print selection when needed,
 - print one label per selected item from the shared selection, optionally repeated by quantity,
 - create BOMist label trees from pasted label paths without duplicating existing parent labels.
 
-The app preserves selected UI state across page refreshes in browser `localStorage`, including the selected order, order filter text, selected item rows grouped by order, and the "repeat by quantity" option.
+The app preserves selected UI state across page refreshes in browser `localStorage`, including the selected order, order filter text, selected item rows grouped by order, additional cost distribution drafts grouped by order, and the "repeat by quantity" option.
 
 ## Tech Stack
 
@@ -54,7 +55,7 @@ node --check public/app.js
 
 When testing with real data, BOMist must be running locally with API enabled in `Settings > API`.
 
-When an agent starts the local app server during work, leave it running at the end unless the user explicitly asks to stop it.
+When an agent needs the local app server, first try to reuse `http://localhost:3000`. If port 3000 responds, verify it is BOMist Helper before starting another server. Only start on another port after confirming port 3000 is occupied by a different app or cannot be used. When an agent starts the local app server during work, leave it running at the end unless the user explicitly asks to stop it.
 
 ## BOMist API Assumptions
 
@@ -62,6 +63,7 @@ Default endpoints target BOMist 2.14.x:
 
 - `GET /purchase_orders?limit=100`
 - `GET /purchase_orders/{id}/items`
+- `PUT /purchase_orders/{orderId}/items/{itemId}`
 - `GET /parts?limit=5000`
 - `GET /labels?limit=5000`
 - `POST /labels`
@@ -74,6 +76,7 @@ The app also has an `Integration` panel where the user can change only the API U
 - Keep visible app text in English.
 - Preserve the flexible data mapping in `public/app.js`; BOMist objects can contain nested `purchase_order`, `purchase_order_item`, and `part` payloads.
 - Preserve refresh persistence for user-facing UI state. Settings use `bomist-helper-settings`; app UI state uses `bomist-helper-state`.
+- Cost distribution drafts are local UI state only. Applying a distribution must update only existing BOMist order item unit price and total value; invoice-only values must never be posted as BOMist items.
 - Be careful with print styles in `public/styles.css`; `@media print` is part of the primary feature, not decoration.
 - Do not hard-code private workspace paths, user data, or specific order numbers in the app.
 - If you start `npm start` for the user, keep that server running after finishing so the app remains available locally.
@@ -82,6 +85,7 @@ The app also has an `Integration` panel where the user can change only the API U
 ## Common Change Areas
 
 - New BOMist endpoints: add or adjust fixed endpoint constants and fetch logic in `public/app.js`; do not expose endpoint paths as user-editable settings unless explicitly requested.
+- Cost distribution: update the `Distribute additional costs` panel in `public/index.html`, allocation/update logic in `public/app.js`, and panel styles in `public/styles.css`.
 - Label content/layout: update `buildLabels()` in `public/app.js` and matching print CSS in `public/styles.css`.
 - Label path creation: update `parseLabelPath()`, `findExistingLabel()`, and `createLabelPath()` in `public/app.js`.
 - UI copy: update `public/index.html` and any runtime messages in `public/app.js`.

@@ -78,6 +78,38 @@
                 <tbody id="itemsTable"></tbody>
               </table>
             </div>
+
+            <section id="costAllocationPanel" class="cost-allocation-panel">
+              <div class="subsection-header">
+                <div>
+                  <h3>Distribute additional costs</h3>
+                  <p class="hint">Extra costs are split proportionally by item value. Invoice-only rows participate in the split but are not saved to BOMist.</p>
+                </div>
+                <button id="applyCostAllocationButton" class="primary-button" type="button" disabled>Update BOMist items</button>
+              </div>
+
+              <div class="allocation-grid">
+                <section class="allocation-block">
+                  <div class="compact-header">
+                    <h4>Additional costs</h4>
+                    <button id="addCostRowButton" class="text-button" type="button">Add cost</button>
+                  </div>
+                  <div id="costRows" class="allocation-rows"></div>
+                </section>
+
+                <section class="allocation-block">
+                  <div class="compact-header">
+                    <h4>Invoice-only item values</h4>
+                    <button id="addExternalItemRowButton" class="text-button" type="button">Add value</button>
+                  </div>
+                  <div id="externalItemRows" class="allocation-rows"></div>
+                </section>
+              </div>
+
+              <div id="allocationSummary" class="allocation-summary"></div>
+              <div id="allocationPreview" class="allocation-preview"></div>
+              <p id="costAllocationStatus" class="hint" aria-live="polite"></p>
+            </section>
           </div>
         </section>
 
