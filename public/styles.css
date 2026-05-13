@@ -409,20 +409,10 @@ textarea {
   gap: 8px;
 }
 
-#externalItemRows .allocation-row {
-  display: flex;
-  align-items: start;
-}
-
 .allocation-row .text-button {
   flex: 0 0 auto;
   width: max-content;
   white-space: nowrap;
-}
-
-#externalItemRows .allocation-row input {
-  flex: 1 1 0;
-  min-width: 0;
 }
 
 .allocation-row .text-button:disabled {
@@ -591,9 +581,6 @@ td {
     grid-template-columns: 1fr;
   }
 
-  #externalItemRows .allocation-row {
-    display: flex;
-  }
 }
 
 @media print {

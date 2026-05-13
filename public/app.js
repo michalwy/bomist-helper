@@ -7,6 +7,8 @@ const state = {
   itemsByOrderId: new Map(),
   selectedItemKeysByOrderId: new Map(),
   costAllocationByOrderId: new Map(),
+  costAllocationDocumentsByOrderId: new Map(),
+  costAllocationDataByOrderId: new Map(),
   partsById: new Map(),
   labelsById: new Map(),
   lotsById: new Map()
@@ -21,9 +23,17 @@ const defaultSettings = {
 const bomistEndpoints = {
   ordersEndpoint: "/purchase_orders?limit=100",
   detailsEndpoint: "/purchase_orders/{id}/items",
+  orderMutationEndpoint: "/purchase_orders/{orderId}",
   itemMutationEndpoint: "/purchase_orders/{orderId}/items/{itemId}",
+  documentsEndpoint: "/documents",
+  orderDocumentsEndpoint: "/purchase_orders/{orderId}/documents",
+  orderDocumentLinkEndpoint: "/purchase_orders/{orderId}/documents/{documentId}",
   labelsEndpoint: "/labels?limit=5000"
 };
+
+const helperDataSchema = "bomist-helper.cost-allocation";
+const helperDataVersion = 1;
+const helperDocumentCategory = "BOMist Helper";
 
 const defaultAppState = {
   selectedOrderId: "",
@@ -148,7 +158,10 @@ function normalizeCostAllocationDraft(draft) {
     }))
     : defaultCostAllocationDraft().costs;
   const externalItems = Array.isArray(normalized.externalItems)
-    ? normalized.externalItems.map(row => ({ value: String(row?.value || "") }))
+    ? normalized.externalItems.map(row => ({
+      label: String(row?.label || ""),
+      value: String(row?.value || "")
+    }))
     : [];
 
   return {
@@ -456,6 +469,65 @@ function numericValue(value) {
   return null;
 }
 
+function parseHelperDataValue(value) {
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+
+  return value && typeof value === "object" ? value : null;
+}
+
+function costAllocationDataFromDocument(document) {
+  const documentData = document?.document && typeof document.document === "object" ? document.document : document || {};
+  const data = parseHelperDataValue(documentData.notes);
+  return data?.schema === helperDataSchema ? data : null;
+}
+
+function allocationDraftFromOrderData(data) {
+  if (!data?.allocation) return null;
+  return normalizeCostAllocationDraft({
+    costs: data.allocation.costs,
+    externalItems: data.allocation.externalItems
+  });
+}
+
+function hasMeaningfulCostAllocationDraft(draft) {
+  const normalized = normalizeCostAllocationDraft(draft);
+  return normalized.costs.some(row => parsePositiveAmount(row.amount) > 0) ||
+    normalized.externalItems.some(row => parsePositiveAmount(row.value) > 0);
+}
+
+function hasSavedCostAllocation(orderId) {
+  return Boolean(state.costAllocationDataByOrderId.get(String(orderId)));
+}
+
+function helperDocumentUrl(orderId) {
+  return `bomist-helper://cost-allocation/${encodeURIComponent(orderId)}`;
+}
+
+function helperDocumentName(order) {
+  return `BOMist Helper Data - ${getOrderTitle(order)}`;
+}
+
+function documentData(document) {
+  return document?.document && typeof document.document === "object" ? document.document : document || {};
+}
+
+function getDocumentId(document) {
+  const data = documentData(document);
+  return data.id || document?.id || document?._id || "";
+}
+
+function costAllocationItemData(orderId, itemId) {
+  const data = state.costAllocationDataByOrderId.get(String(orderId));
+  if (!data || !Array.isArray(data.items)) return null;
+  return data.items.find(item => String(item.itemId) === String(itemId)) || null;
+}
+
 function formatMoney(value, currency = "", options = {}) {
   if (value === undefined || value === null || value === "") return "";
   const numeric = numericValue(value);
@@ -648,13 +720,25 @@ function normalizeItem(item, index, order = state.selectedOrder) {
   const computedValue = explicitValueNumber === null && unitPrice !== null ? unitPrice * normalizedQuantity : explicitValue;
   const computedValueNumber = numericValue(computedValue);
   const lineValue = computedValueNumber === null ? null : roundAmount(computedValueNumber, 2);
+  const itemId = getItemId(item);
+  const orderId = orderIdString(order);
+  const allocationItemData = costAllocationItemData(orderId, itemId);
+  const lastAllocation = allocationItemData?.lastAllocation || {};
+  const hasAllocationItemData = Boolean(allocationItemData);
+  const allocationMatchesCurrentPrice = hasAllocationItemData &&
+    amountsClose(lineValue, lastAllocation.adjustedValue, 2) &&
+    amountsClose(unitPrice, lastAllocation.adjustedUnitPrice, 6);
+  const allocationBaseChanged = hasAllocationItemData && !allocationMatchesCurrentPrice;
+  const originalPricing = !allocationBaseChanged ? allocationItemData?.originalPricing || {} : {};
+  const allocationBaseValue = numericValue(originalPricing.lineValue) ?? lineValue;
+  const allocationBaseUnitPrice = numericValue(originalPricing.unitPrice) ?? unitPrice;
   const lotDetails = firstLotDetails(purchaseOrderItem.lot, item.lot, deepFind(item, ["lot", "batch"]));
   const status = purchaseOrderItem.status || deepFind(item, ["status", "state", "receivedStatus"]) || "";
   const orderDetails = getOrderLabelDetails(order);
 
   return {
     key: getItemKey(item, index),
-    itemId: getItemId(item),
+    itemId,
     raw: item,
     index: index + 1,
     name: String(description),
@@ -668,6 +752,10 @@ function normalizeItem(item, index, order = state.selectedOrder) {
     currency,
     unitPrice,
     lineValue,
+    allocationBaseValue,
+    allocationBaseUnitPrice,
+    allocationBaseChanged,
+    allocationItemData,
     price: formatUnitPrice(price, currency),
     value: formatMoney(lineValue, currency),
     lot: [lotDetails.number, lotDetails.comment].filter(Boolean).join(" - "),
@@ -738,6 +826,51 @@ async function loadOrderItems(order) {
   const normalizedItems = rawItems.map((item, index) => normalizeItem(item, index, order));
   state.itemsByOrderId.set(orderId, normalizedItems);
   return normalizedItems;
+}
+
+async function loadOrderDetails(order) {
+  const orderId = orderIdString(order);
+  if (!orderId) return order;
+
+  try {
+    return await bomistFetch(buildOrderMutationPath(orderId));
+  } catch {
+    return order;
+  }
+}
+
+async function loadCostAllocationDocument(orderId) {
+  const path = bomistEndpoints.orderDocumentsEndpoint.replace("{orderId}", encodeURIComponent(orderId));
+
+  try {
+    const payload = await bomistFetch(path);
+    const documents = unwrapCollection(payload);
+    const expectedUrl = helperDocumentUrl(orderId);
+    const found = documents.find(document => {
+      const data = documentData(document);
+      const parsed = costAllocationDataFromDocument(document);
+      return data.url === expectedUrl || parsed?.schema === helperDataSchema;
+    });
+
+    if (!found) {
+      state.costAllocationDocumentsByOrderId.delete(orderId);
+      state.costAllocationDataByOrderId.delete(orderId);
+      return null;
+    }
+
+    const data = costAllocationDataFromDocument(found);
+    state.costAllocationDocumentsByOrderId.set(orderId, found);
+    if (data) {
+      state.costAllocationDataByOrderId.set(orderId, data);
+    } else {
+      state.costAllocationDataByOrderId.delete(orderId);
+    }
+    return found;
+  } catch {
+    state.costAllocationDocumentsByOrderId.delete(orderId);
+    state.costAllocationDataByOrderId.delete(orderId);
+    return null;
+  }
 }
 
 async function loadPersistedSelectedOrderItems() {
@@ -949,14 +1082,20 @@ function clearSelection({ persist = false } = {}) {
 }
 
 async function selectOrder(orderId, { persist = true } = {}) {
-  const order = state.orders.find(item => String(getOrderId(item)) === String(orderId));
+  let order = state.orders.find(item => String(getOrderId(item)) === String(orderId));
   if (!order) {
     clearSelection({ persist });
     return;
   }
 
+  order = await loadOrderDetails(order);
+  const orderIndex = state.orders.findIndex(item => String(getOrderId(item)) === String(orderId));
+  if (orderIndex >= 0) state.orders[orderIndex] = order;
+  await loadCostAllocationDocument(String(orderId));
+  state.itemsByOrderId.delete(String(orderId));
   state.selectedOrder = order;
   state.selectedItems = await loadOrderItems(order);
+  hydrateCostAllocationDraftFromOrder(order);
 
   restoreItemSelection(order);
   renderOrders();
@@ -1029,6 +1168,7 @@ function readCostAllocationDraftFromDom() {
       amount: row.querySelector("[data-cost-amount]")?.value || ""
     })),
     externalItems: [...els.externalItemRows.querySelectorAll(".allocation-row")].map(row => ({
+      label: row.querySelector("[data-external-label]")?.value || "",
       value: row.querySelector("[data-external-value]")?.value || ""
     }))
   });
@@ -1040,6 +1180,17 @@ function saveCurrentCostAllocationDraft({ persist = true } = {}) {
   if (persist) saveAppState();
 }
 
+function hydrateCostAllocationDraftFromOrder(order) {
+  const orderId = orderIdString(order);
+  const savedDraft = allocationDraftFromOrderData(state.costAllocationDataByOrderId.get(orderId));
+  if (!savedDraft) return;
+
+  const currentDraft = state.costAllocationByOrderId.get(orderId);
+  if (!currentDraft || !hasMeaningfulCostAllocationDraft(currentDraft)) {
+    state.costAllocationByOrderId.set(orderId, savedDraft);
+  }
+}
+
 function parsePositiveAmount(value) {
   const numeric = numericValue(value);
   return numeric !== null && numeric > 0 ? numeric : 0;
@@ -1048,6 +1199,13 @@ function parsePositiveAmount(value) {
 function roundAmount(value, precision = 2) {
   const factor = 10 ** precision;
   return Math.round((value + Number.EPSILON) * factor) / factor;
+}
+
+function amountsClose(left, right, precision = 2) {
+  const leftNumber = numericValue(left);
+  const rightNumber = numericValue(right);
+  if (leftNumber === null || rightNumber === null) return false;
+  return Math.abs(leftNumber - rightNumber) < 1 / (10 ** precision);
 }
 
 function centsValue(value) {
@@ -1099,7 +1257,7 @@ function buildAllocationRows() {
   }));
   const bomistItems = state.selectedItems.map(item => ({
     item,
-    baseValue: item.lineValue,
+    baseValue: item.allocationBaseValue ?? item.lineValue,
     quantity: item.quantity || 1
   }));
   const usableBomistItems = bomistItems.filter(row => row.baseValue !== null && row.baseValue !== undefined && row.baseValue >= 0);
@@ -1122,12 +1280,19 @@ function buildAllocationRows() {
     const allocatedCost = (bomistAllocatedCents[index] || 0) / 100;
     const adjustedValue = roundAmount(row.baseValue + allocatedCost, 2);
     const adjustedUnitPrice = row.quantity > 0 ? adjustedValue / row.quantity : adjustedValue;
+    const originalPricing = row.item.allocationItemData?.originalPricing || {
+      unitPrice: row.item.allocationBaseUnitPrice,
+      lineValue: row.baseValue,
+      quantity: row.quantity,
+      currency: row.item.currency
+    };
     return {
       ...row,
       share,
       allocatedCost,
       adjustedValue,
-      adjustedUnitPrice: roundAmount(adjustedUnitPrice, 6)
+      adjustedUnitPrice: roundAmount(adjustedUnitPrice, 6),
+      originalPricing
     };
   });
   const bomistAllocatedCost = bomistAllocatedCents.reduce((sum, cents) => sum + cents, 0) / 100;
@@ -1138,6 +1303,7 @@ function buildAllocationRows() {
     externalItems,
     rows,
     skippedItems: state.selectedItems.length - usableBomistItems.length,
+    changedBaseItems: rows.filter(row => row.item.allocationBaseChanged).length,
     totalExtraCost,
     bomistBaseValue,
     externalBaseValue,
@@ -1160,12 +1326,13 @@ function renderCostAllocationPanel() {
     <div class="allocation-row">
       <input type="text" data-cost-label data-row-index="${index}" value="${escapeHtml(row.label)}" aria-label="Cost label" placeholder="Cost label">
       <input type="text" inputmode="decimal" data-cost-amount data-row-index="${index}" value="${escapeHtml(row.amount)}" aria-label="Cost amount" placeholder="0.00">
-      <button class="text-button" type="button" data-remove-cost="${index}" ${draft.costs.length <= 1 ? "disabled" : ""}>Remove</button>
+      <button class="text-button" type="button" data-remove-cost="${index}">Remove</button>
     </div>
   `);
   renderAllocationRows(els.externalItemRows, draft.externalItems, (row, index) => `
     <div class="allocation-row">
-      <input type="text" inputmode="decimal" data-external-value data-row-index="${index}" value="${escapeHtml(row.value)}" aria-label="Invoice-only item value" placeholder="0.00">
+      <input type="search" data-external-label data-row-index="${index}" value="${escapeHtml(row.label)}" aria-label="External row name" placeholder="Item label" autocomplete="new-password" data-lpignore="true" data-1p-ignore>
+      <input type="search" inputmode="decimal" data-external-value data-row-index="${index}" value="${escapeHtml(row.value)}" aria-label="External row amount" placeholder="0.00" autocomplete="new-password" data-lpignore="true" data-1p-ignore>
       <button class="text-button" type="button" data-remove-external="${index}">Remove</button>
     </div>
   `);
@@ -1179,8 +1346,11 @@ function renderCostAllocationPanel() {
 
 function updateAllocationPreview() {
   if (!state.selectedOrder || !els.allocationPreview) return;
+  const orderId = orderIdString(state.selectedOrder);
   const data = buildAllocationRows();
-  const canApply = data.totalExtraCost > 0 && data.allocationBaseValue > 0 && data.bomistAllocatedCost > 0 && data.rows.some(row => row.item.itemId);
+  const canApply = data.allocationBaseValue > 0 &&
+    data.rows.some(row => row.item.itemId) &&
+    (data.bomistAllocatedCost > 0 || hasSavedCostAllocation(orderId));
 
   els.allocationSummary.innerHTML = `
     <div><strong>${escapeHtml(formatMoney(data.totalExtraCost, data.currency))}</strong><span>additional costs</span></div>
@@ -1222,8 +1392,14 @@ function updateAllocationPreview() {
   els.applyCostAllocationButton.disabled = !canApply;
   if (data.skippedItems) {
     setCostAllocationStatus(`${data.skippedItems} item(s) without numeric value are skipped.`, "status-warn");
+  } else if (data.changedBaseItems) {
+    setCostAllocationStatus(`${data.changedBaseItems} item(s) changed in BOMist since the last allocation. Current values will be used as the new base.`, "status-warn");
   } else if (!data.totalExtraCost) {
-    setCostAllocationStatus("Enter at least one additional cost amount.", "");
+    if (hasSavedCostAllocation(orderId)) {
+      setCostAllocationStatus("Ready to restore original BOMist item prices and save zero additional costs.", "status-ok");
+    } else {
+      setCostAllocationStatus("Enter at least one additional cost amount.", "");
+    }
   } else if (!data.allocationBaseValue) {
     setCostAllocationStatus("Enter item values greater than zero before applying costs.", "status-warn");
   } else if (!data.bomistAllocatedCost) {
@@ -1278,15 +1454,13 @@ function purchaseOrderItemPayload(item, adjusted) {
   return {
     wrapped: {
       purchase_order_item: updatedItem
-    },
-    direct: updatedItem
+    }
   };
 }
 
 async function tryUpdateBomistOrderItem(path, payloads) {
   const attempts = [
-    { method: "PUT", body: payloads.wrapped },
-    { method: "PUT", body: payloads.direct }
+    { method: "PUT", body: payloads.wrapped }
   ];
   const errors = [];
 
@@ -1318,6 +1492,109 @@ async function updateBomistOrderItem(orderId, row) {
   };
 }
 
+function buildOrderMutationPath(orderId) {
+  return bomistEndpoints.orderMutationEndpoint.replace("{orderId}", encodeURIComponent(orderId));
+}
+
+function buildOrderDocumentsPath(orderId) {
+  return bomistEndpoints.orderDocumentsEndpoint.replace("{orderId}", encodeURIComponent(orderId));
+}
+
+function buildOrderDocumentLinkPath(orderId, documentId) {
+  return bomistEndpoints.orderDocumentLinkEndpoint
+    .replace("{orderId}", encodeURIComponent(orderId))
+    .replace("{documentId}", encodeURIComponent(documentId));
+}
+
+function buildDocumentMutationPath(documentId) {
+  return `${bomistEndpoints.documentsEndpoint}/${encodeURIComponent(documentId)}`;
+}
+
+async function findCostAllocationDocumentByUrl(orderId) {
+  const payload = await bomistFetch(`${bomistEndpoints.documentsEndpoint}?limit=5000`);
+  const expectedUrl = helperDocumentUrl(orderId);
+  return unwrapCollection(payload).find(document => documentData(document).url === expectedUrl) || null;
+}
+
+function buildCostAllocationData(allocationRun, rows) {
+  return {
+    schema: helperDataSchema,
+    version: helperDataVersion,
+    appliedAt: allocationRun.appliedAt,
+    orderId: allocationRun.orderId,
+    allocation: {
+      costs: allocationRun.costs,
+      externalItems: allocationRun.externalItems,
+      totalExtraCost: allocationRun.totalExtraCost,
+      bomistBaseValue: allocationRun.bomistBaseValue,
+      externalBaseValue: allocationRun.externalBaseValue,
+      allocationBaseValue: allocationRun.allocationBaseValue,
+      bomistAllocatedCost: allocationRun.bomistAllocatedCost,
+      externalAllocatedCost: allocationRun.externalAllocatedCost,
+      currency: allocationRun.currency
+    },
+    items: rows.map(row => ({
+      itemId: row.item.itemId,
+      catalogNumber: row.item.catalogNumber,
+      originalPricing: row.originalPricing,
+      lastAllocation: {
+        baseValue: row.baseValue,
+        allocatedCost: row.allocatedCost,
+        adjustedValue: row.adjustedValue,
+        adjustedUnitPrice: row.adjustedUnitPrice,
+        share: row.share,
+        currency: allocationRun.currency || row.item.currency
+      }
+    }))
+  };
+}
+
+function costAllocationDocumentPayload(order, allocationData) {
+  return {
+    document: {
+      name: helperDocumentName(order),
+      category: helperDocumentCategory,
+      notes: JSON.stringify(allocationData),
+      url: helperDocumentUrl(allocationData.orderId)
+    }
+  };
+}
+
+async function saveCostAllocationDocument(orderId, allocationData) {
+  const existingDocument = state.costAllocationDocumentsByOrderId.get(orderId);
+  const existingDocumentId = existingDocument ? getDocumentId(existingDocument) : "";
+  const payload = costAllocationDocumentPayload(state.selectedOrder, allocationData);
+
+  if (existingDocumentId) {
+    await bomistFetch(buildDocumentMutationPath(existingDocumentId), {
+      method: "PUT",
+      body: JSON.stringify(payload)
+    });
+    const updatedDocument = {
+      ...existingDocument,
+      document: {
+        ...documentData(existingDocument),
+        ...payload.document,
+        id: existingDocumentId
+      }
+    };
+    state.costAllocationDocumentsByOrderId.set(orderId, updatedDocument);
+  } else {
+    const savedDocument = await bomistFetch(bomistEndpoints.documentsEndpoint, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    const documentId = getDocumentId(savedDocument) || getDocumentId(await findCostAllocationDocumentByUrl(orderId));
+    if (!documentId) {
+      throw new Error("BOMist did not return an id for the helper document.");
+    }
+    await bomistFetch(buildOrderDocumentLinkPath(orderId, documentId), { method: "PUT" });
+    await loadCostAllocationDocument(orderId);
+  }
+
+  state.costAllocationDataByOrderId.set(orderId, allocationData);
+}
+
 async function applyCostAllocation() {
   if (!state.selectedOrder) return;
   saveCurrentCostAllocationDraft();
@@ -1325,7 +1602,7 @@ async function applyCostAllocation() {
   const data = buildAllocationRows();
   const updateRows = data.rows.filter(row => row.item.itemId);
 
-  if (!data.totalExtraCost || !data.allocationBaseValue || !data.bomistAllocatedCost || !updateRows.length) {
+  if (!data.allocationBaseValue || (!data.bomistAllocatedCost && !hasSavedCostAllocation(orderId)) || !updateRows.length) {
     updateAllocationPreview();
     return;
   }
@@ -1334,17 +1611,40 @@ async function applyCostAllocation() {
   setCostAllocationStatus(`Updating ${updateRows.length} BOMist item(s)...`);
 
   try {
+    const allocationRun = {
+      appliedAt: new Date().toISOString(),
+      orderId,
+      costs: data.costs
+        .filter(row => row.label.trim() || row.amountNumber > 0)
+        .map(row => ({ label: row.label.trim(), amount: row.amountNumber })),
+      externalItems: data.externalItems
+        .filter(row => row.label.trim() || row.valueNumber > 0)
+        .map(row => ({ label: row.label.trim(), value: row.valueNumber })),
+      totalExtraCost: data.totalExtraCost,
+      bomistBaseValue: data.bomistBaseValue,
+      externalBaseValue: data.externalBaseValue,
+      allocationBaseValue: data.allocationBaseValue,
+      bomistAllocatedCost: data.bomistAllocatedCost,
+      externalAllocatedCost: data.externalAllocatedCost,
+      currency: data.currency
+    };
+
     for (const row of updateRows) {
-      await updateBomistOrderItem(orderId, row);
+      await updateBomistOrderItem(orderId, { ...row, allocationRun });
     }
 
-    state.costAllocationByOrderId.set(orderId, defaultCostAllocationDraft());
+    await saveCostAllocationDocument(orderId, buildCostAllocationData(allocationRun, updateRows));
+
+    state.costAllocationByOrderId.set(orderId, normalizeCostAllocationDraft({
+      costs: allocationRun.costs,
+      externalItems: allocationRun.externalItems
+    }));
     saveAppState();
     state.itemsByOrderId.delete(orderId);
     state.selectedItems = await loadOrderItems(state.selectedOrder);
     restoreItemSelection(state.selectedOrder);
     renderDetails(state.selectedOrder);
-    setCostAllocationStatus(`Updated ${updateRows.length} BOMist item(s). Draft values were cleared.`, "status-ok");
+    setCostAllocationStatus(`Updated ${updateRows.length} BOMist item(s) and saved allocation data in BOMist.`, "status-ok");
   } catch (error) {
     updateAllocationPreview();
     setCostAllocationStatus(`Could not update BOMist items: ${error.message}`, "status-error");
@@ -1491,7 +1791,7 @@ els.addExternalItemRowButton.addEventListener("click", () => {
   if (!state.selectedOrder) return;
   saveCurrentCostAllocationDraft({ persist: false });
   const draft = currentCostAllocationDraft();
-  draft.externalItems.push({ value: "" });
+  draft.externalItems.push({ label: "", value: "" });
   state.costAllocationByOrderId.set(orderIdString(state.selectedOrder), draft);
   renderCostAllocationPanel();
   saveAppState();

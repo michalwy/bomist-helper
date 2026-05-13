@@ -10,7 +10,7 @@ Current main workflow:
 - select one order,
 - load its items,
 - enrich item rows with part data,
-- distribute invoice-level additional costs across BOMist order items while letting invoice-only item values participate in the proportional split,
+- distribute invoice-level additional costs across BOMist order items while letting invoice-only item values participate in the proportional split and persisting allocation metadata in BOMist custom fields,
 - choose which item rows from one or more orders should produce labels,
 - clear the shared print selection when needed,
 - print one label per selected item from the shared selection, optionally repeated by quantity,
@@ -64,11 +64,17 @@ Default endpoints target BOMist 2.14.x:
 - `GET /purchase_orders?limit=100`
 - `GET /purchase_orders/{id}/items`
 - `PUT /purchase_orders/{orderId}/items/{itemId}`
+- `GET /purchase_orders/{orderId}/documents`
+- `POST /documents`
+- `PUT /documents/{documentId}`
+- `PUT /purchase_orders/{orderId}/documents/{documentId}`
 - `GET /parts?limit=5000`
 - `GET /labels?limit=5000`
 - `POST /labels`
 
 The app also has an `Integration` panel where the user can change only the API URL. Endpoint paths are fixed to the BOMist 2.14.x API shape. Settings are stored in browser `localStorage`.
+
+When changing BOMist API payloads, never guess request shapes from returned objects. Check the local Swagger schema at `http://localhost:3333/swagger.json` and keep mutation payloads within the documented request body. BOMist may return user-created custom fields such as `_bomistHelperData`, but the local API rejects updating those fields through purchase order and purchase order item `PUT` requests.
 
 ## Implementation Notes
 
@@ -76,7 +82,7 @@ The app also has an `Integration` panel where the user can change only the API U
 - Keep visible app text in English.
 - Preserve the flexible data mapping in `public/app.js`; BOMist objects can contain nested `purchase_order`, `purchase_order_item`, and `part` payloads.
 - Preserve refresh persistence for user-facing UI state. Settings use `bomist-helper-settings`; app UI state uses `bomist-helper-state`.
-- Cost distribution drafts are local UI state only. Applying a distribution must update only existing BOMist order item unit price and total value; invoice-only values must never be posted as BOMist items.
+- Cost distribution drafts are local UI state while editing. Applying a distribution must update only existing BOMist order item unit price and total value; invoice-only values must never be posted as BOMist items. Persist allocation metadata in a BOMist document attached to the order, not in custom fields. The helper document is named `BOMist Helper Data - <order number>`, uses category `BOMist Helper`, stores JSON in `document.notes`, and is linked with `PUT /purchase_orders/{orderId}/documents/{documentId}`.
 - Be careful with print styles in `public/styles.css`; `@media print` is part of the primary feature, not decoration.
 - Do not hard-code private workspace paths, user data, or specific order numbers in the app.
 - If you start `npm start` for the user, keep that server running after finishing so the app remains available locally.
