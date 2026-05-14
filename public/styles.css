@@ -770,6 +770,39 @@ td {
   overflow-wrap: anywhere;
 }
 
+.part-value-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.part-value-panel .primary-button {
+  width: 100%;
+}
+
+.part-value-preview {
+  max-height: 520px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+
+.part-value-preview table {
+  min-width: 560px;
+}
+
+.part-value-preview .hint {
+  padding: 12px;
+}
+
+.part-value-preview td {
+  overflow-wrap: anywhere;
+}
+
+.part-value-preview td:nth-child(2),
+.part-value-preview td:nth-child(3) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
 .status-ok {
   color: var(--accent-strong);
 }

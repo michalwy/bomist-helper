@@ -10,7 +10,8 @@ Current main workflow:
 - select one order,
 - load its items,
 - enrich item rows with part data,
-- distribute invoice-level additional costs across BOMist order items while letting invoice-only item values participate in the proportional split and persisting allocation metadata in BOMist custom fields,
+- distribute invoice-level additional costs across BOMist order items while letting invoice-only item values participate in the proportional split and persisting allocation metadata in a BOMist document,
+- normalize part values by adding a space between the number and recognized unit and by adding an ohm unit when it is missing,
 - choose which item rows from one or more orders should produce labels,
 - clear the shared print selection when needed,
 - print one label per selected item from the shared selection, optionally repeated by quantity,
@@ -74,7 +75,9 @@ Default endpoints target BOMist 2.14.x:
 - `POST /documents`
 - `PUT /documents/{documentId}`
 - `PUT /purchase_orders/{orderId}/documents/{documentId}`
+- `GET /parts?limit=5000`
 - `GET /parts/{part_id}`
+- `PUT /parts/{part_id}`
 - `GET /labels?limit=5000`
 - `POST /labels`
 
@@ -99,6 +102,7 @@ When changing BOMist API payloads, never guess request shapes from returned obje
 - New BOMist endpoints: add or adjust fixed endpoint constants and fetch logic in `public/app.js`; do not expose endpoint paths as user-editable settings unless explicitly requested.
 - Cost distribution: update the `Distribute additional costs` panel in `public/index.html`, allocation/update logic in `public/app.js`, and panel styles in `public/styles.css`.
 - Label content/layout: update `buildLabels()` in `public/app.js` and matching print CSS in `public/styles.css`.
+- Part value normalization: update the `Normalize part values` panel in `public/index.html`, scan/update logic in `public/app.js`, and matching styles in `public/styles.css`.
 - Label path creation: update `parseLabelPath()`, `findExistingLabel()`, and `createLabelPath()` in `public/app.js`.
 - UI copy: update `public/index.html` and any runtime messages in `public/app.js`.
 - Persisted UI state: update `defaultAppState`, `loadAppState()`, `getCurrentAppState()`, `saveAppState()`, `applyAppState()`, and item selection restore logic in `public/app.js`.

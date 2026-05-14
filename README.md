@@ -6,9 +6,10 @@ Local web app for working with the BOMist API. The first implemented workflow in
 - showing the items of the selected order,
 - distributing invoice-level extra costs across order items,
 - preparing a shared print selection from one or more orders,
+- normalizing part values by inserting a space between the number and unit and adding ohm units when missing,
 - creating BOMist label trees from pasted label paths.
 
-The main navigation separates order workflows, part-focused tools, label tools, and settings. The `Orders` workspace contains purchase-order loading, cost distribution, and print selection. The `Parts` workspace is reserved for tools that operate directly on parts. The `Labels` workspace contains global label tools such as label path creation.
+The main navigation separates order workflows, part-focused tools, label tools, and settings. The `Orders` workspace contains purchase-order loading, cost distribution, and print selection. The `Parts` workspace contains tools that operate directly on parts. The `Labels` workspace contains global label tools such as label path creation.
 
 ## Run Locally
 
@@ -33,7 +34,9 @@ The app uses these BOMist 2.14.x endpoints:
 - order list: `GET /purchase_orders?limit=100`
 - order items: `GET /purchase_orders/{id}/items`
 - order item update: `PUT /purchase_orders/{orderId}/items/{itemId}`
+- part list: `GET /parts?limit=5000`
 - parts for enriching labels: `GET /parts/{part_id}` for parts used by loaded order items
+- part update: `PUT /parts/{part_id}`
 - labels for display and path creation: `GET /labels?limit=5000`
 - label creation: `POST /labels`
 
@@ -46,6 +49,10 @@ After selecting an order, use `Distribute additional costs` to enter shipping, t
 Additional costs are distributed in cents across all participating values using the largest-remainder method, so rounding does not leave an undistributed cent. Invoice-only rows can receive part of that cent-level distribution, but only BOMist item rows are updated.
 
 Draft cost rows and invoice-only items are stored in browser state per order while editing. When you use `Update BOMist items`, the app also writes BOMist Helper metadata to a BOMist document attached to the purchase order. The document is named `BOMist Helper Data - <order number>`, uses the category `BOMist Helper`, and stores JSON in `notes`. It includes the extra cost rows, invoice-only item labels and values, totals, currency, apply timestamp, original item price/value, and the last allocated cost per item. When you later reopen the order, the app can prefill the previous costs and recalculate from the original item values instead of adding costs on top of already adjusted prices. If an existing item price has changed in BOMist since the last helper allocation, the app uses the current BOMist value as the new base for that item. Setting all additional costs to zero on an order with saved metadata restores original BOMist item prices. Invoice-only rows are still never sent as BOMist order items.
+
+## Part Value Normalization
+
+In the `Parts` workspace, use `Normalize part values` to scan all parts and preview values where the numeric value touches a recognized unit, a resistance value uses compact decimal notation, or a resistance value is missing the ohm symbol. Applying the preview updates only the BOMist part `value` field, changing examples such as `10kΩ`, `4.7uF`, `6.3V`, `4k7`, `10 k`, and `20` to `10 kΩ`, `4.7 uF`, `6.3 V`, `4.7 kΩ`, `10 kΩ`, and `20 Ω`.
 
 ## Label Printing
 

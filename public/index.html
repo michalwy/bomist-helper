@@ -127,14 +127,25 @@
               <div class="panel-header">
                 <h2>Part tools</h2>
               </div>
-              <button class="tool-row active" type="button">Parts workspace</button>
+              <button class="tool-row active" type="button">Normalize values</button>
             </section>
           </aside>
-          <section class="details">
-            <div class="empty-state">
-              <h2>Parts</h2>
-              <p>Part-focused tools will appear here.</p>
-            </div>
+          <section class="details details-narrow">
+            <section class="panel part-value-panel">
+              <div class="subsection-header">
+                <div>
+                  <h2>Normalize part values</h2>
+                  <p class="hint">Find part values that need unit spacing or a missing ohm unit, then preview the BOMist updates.</p>
+                </div>
+                <button id="scanPartValuesButton" class="secondary-button" type="button">Scan parts</button>
+              </div>
+
+              <div id="partValuePreview" class="part-value-preview">
+                <p class="hint">Scan parts to preview values such as 10kΩ → 10 kΩ, 4k7 → 4.7 kΩ, 10 k → 10 kΩ, and 20 → 20 Ω before updating BOMist.</p>
+              </div>
+              <button id="applyPartValueSpacingButton" class="primary-button" type="button" disabled>Update BOMist parts</button>
+              <p id="partValueStatus" class="hint" aria-live="polite"></p>
+            </section>
           </section>
         </section>
 

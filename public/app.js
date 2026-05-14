@@ -10,6 +10,7 @@ const state = {
   costAllocationDocumentsByOrderId: new Map(),
   costAllocationDataByOrderId: new Map(),
   expandedStatusGroups: new Map(),
+  partValueSpacingCandidates: [],
   partsById: new Map(),
   labelsById: new Map(),
   lotsById: new Map()
@@ -26,6 +27,8 @@ const bomistEndpoints = {
   detailsEndpoint: "/purchase_orders/{id}/items",
   orderMutationEndpoint: "/purchase_orders/{orderId}",
   itemMutationEndpoint: "/purchase_orders/{orderId}/items/{itemId}",
+  partsEndpoint: "/parts?limit=5000",
+  partMutationEndpoint: "/parts/{partId}",
   partDetailsEndpoint: "/parts/{partId}",
   documentsEndpoint: "/documents",
   orderDocumentsEndpoint: "/purchase_orders/{orderId}/documents",
@@ -65,6 +68,10 @@ const els = {
   itemsTable: document.querySelector("#itemsTable"),
   apiBaseUrl: document.querySelector("#apiBaseUrl"),
   saveSettingsButton: document.querySelector("#saveSettingsButton"),
+  scanPartValuesButton: document.querySelector("#scanPartValuesButton"),
+  applyPartValueSpacingButton: document.querySelector("#applyPartValueSpacingButton"),
+  partValuePreview: document.querySelector("#partValuePreview"),
+  partValueStatus: document.querySelector("#partValueStatus"),
   labelPathInput: document.querySelector("#labelPathInput"),
   createLabelPathButton: document.querySelector("#createLabelPathButton"),
   labelPathStatus: document.querySelector("#labelPathStatus"),
@@ -417,6 +424,40 @@ function labelsMutationPath() {
 
 function looksLikeOpaqueId(value) {
   return /^[a-f0-9]{24}$/i.test(value) || /^[a-z0-9_-]{16,}$/i.test(value);
+}
+
+function normalizePartValueSpacing(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+
+  const numericPattern = "[+-]?(?:\\d+(?:[.,]\\d+)?|[.,]\\d+|\\d+\\/\\d+)";
+  const resistorDecimalMatch = text.match(/^([+-]?\d+)([RrKkMGT])(\d+)$/u);
+  if (resistorDecimalMatch) {
+    const prefix = resistorDecimalMatch[2].toUpperCase();
+    const unit = prefix === "R" ? "" : prefix === "K" ? "k" : prefix;
+    return `${resistorDecimalMatch[1]}.${resistorDecimalMatch[3]} ${unit}Ω`;
+  }
+
+  const missingOhmPrefixMatch = text.match(new RegExp(`^(${numericPattern})\\s*([kKMGT])$`, "u"));
+  if (missingOhmPrefixMatch) {
+    const prefix = missingOhmPrefixMatch[2].toUpperCase();
+    return `${missingOhmPrefixMatch[1]} ${prefix === "K" ? "k" : prefix}Ω`;
+  }
+
+  const rOhmMatch = text.match(new RegExp(`^(${numericPattern})\\s*[Rr]$`, "u"));
+  if (rOhmMatch) return `${rOhmMatch[1]} Ω`;
+
+  const numericOnlyMatch = text.match(new RegExp(`^(${numericPattern})$`, "u"));
+  if (numericOnlyMatch) return `${numericOnlyMatch[1]} Ω`;
+
+  const match = text.match(/^([+-]?(?:\d+(?:[.,]\d+)?|[.,]\d+|\d+\/\d+))([^\d\s].*)$/u);
+  if (!match) return text;
+
+  const unit = match[2];
+  const knownUnitPattern = /^(?:[pnumµμkKMGT]?Ω|[pnumµμkKMGT]?(?:F|H|V|A|W|Hz|R|Ohm|ohm|m|s|B|b)(?:\b|$))/u;
+  if (!knownUnitPattern.test(unit)) return text;
+
+  return `${match[1]} ${unit}`;
 }
 
 function formatLabels(...values) {
@@ -1046,6 +1087,153 @@ async function loadPartsForItems(items) {
     .filter(partId => !state.partsById.has(partId));
 
   await Promise.all(partIds.map(loadPart));
+}
+
+function partsCollectionPath(limit = 5000, skip = 0) {
+  const base = bomistEndpoints.partsEndpoint.split("?")[0] || "/parts";
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (skip > 0) params.set("skip", String(skip));
+  return `${base}?${params.toString()}`;
+}
+
+function buildPartMutationPath(partId) {
+  return bomistEndpoints.partMutationEndpoint.replace("{partId}", encodeURIComponent(partId));
+}
+
+function partData(part) {
+  return part?.part && typeof part.part === "object" ? part.part : part || {};
+}
+
+function getPartDisplayName(part) {
+  const data = partData(part);
+  return firstDisplayValue(data.ipn, data.mpn, data.description, data.id, getPartId(data), getPartId(part)) || "Part without a name";
+}
+
+async function loadAllParts() {
+  const pageSize = 5000;
+  const parts = [];
+
+  for (let skip = 0; ; skip += pageSize) {
+    const payload = await bomistFetch(partsCollectionPath(pageSize, skip));
+    const page = unwrapCollection(payload);
+    parts.push(...page);
+    if (page.length < pageSize) break;
+  }
+
+  return parts;
+}
+
+function buildPartValueSpacingCandidates(parts) {
+  return parts
+    .map(part => {
+      const data = partData(part);
+      const id = getPartId(data) || getPartId(part);
+      const currentValue = String(data.value || "").trim();
+      const updatedValue = normalizePartValueSpacing(currentValue);
+      return {
+        part,
+        id,
+        name: getPartDisplayName(part),
+        currentValue,
+        updatedValue
+      };
+    })
+    .filter(row => row.id && row.currentValue && row.updatedValue !== row.currentValue);
+}
+
+function setPartValueStatus(message, className = "") {
+  els.partValueStatus.textContent = message;
+  els.partValueStatus.className = `hint ${className}`.trim();
+}
+
+function renderPartValuePreview(rows = state.partValueSpacingCandidates || []) {
+  if (!rows.length) {
+    els.partValuePreview.innerHTML = `<p class="hint">No part values need spacing changes.</p>`;
+    els.applyPartValueSpacingButton.disabled = true;
+    return;
+  }
+
+  els.partValuePreview.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Part</th>
+          <th>Current value</th>
+          <th>New value</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map(row => `
+          <tr>
+            <td>${escapeHtml(row.name)}</td>
+            <td>${escapeHtml(row.currentValue)}</td>
+            <td>${escapeHtml(row.updatedValue)}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+  els.applyPartValueSpacingButton.disabled = false;
+}
+
+async function scanPartValues() {
+  els.scanPartValuesButton.disabled = true;
+  els.applyPartValueSpacingButton.disabled = true;
+  els.partValuePreview.innerHTML = `<p class="hint">Scanning parts...</p>`;
+  setPartValueStatus("Loading parts from BOMist...");
+
+  try {
+    const parts = await loadAllParts();
+    state.partValueSpacingCandidates = buildPartValueSpacingCandidates(parts);
+    renderPartValuePreview(state.partValueSpacingCandidates);
+    const count = state.partValueSpacingCandidates.length;
+    setPartValueStatus(
+      count ? `Found ${count} part value(s) to update.` : `Scanned ${parts.length} part(s). No spacing changes needed.`,
+      count ? "status-ok" : ""
+    );
+  } catch (error) {
+    state.partValueSpacingCandidates = [];
+    renderPartValuePreview([]);
+    setPartValueStatus(`Could not scan parts: ${error.message}`, "status-error");
+  } finally {
+    els.scanPartValuesButton.disabled = false;
+  }
+}
+
+async function applyPartValueSpacing() {
+  const rows = state.partValueSpacingCandidates || [];
+  if (!rows.length) return;
+
+  els.scanPartValuesButton.disabled = true;
+  els.applyPartValueSpacingButton.disabled = true;
+  setPartValueStatus(`Updating ${rows.length} BOMist part(s)...`);
+
+  let updatedCount = 0;
+
+  try {
+    for (const row of rows) {
+      await bomistFetch(buildPartMutationPath(row.id), {
+        method: "PUT",
+        body: JSON.stringify({ part: { value: row.updatedValue } })
+      });
+      updatedCount += 1;
+      const cached = state.partsById.get(row.id);
+      if (cached) {
+        const cachedPart = partData(cached);
+        cachedPart.value = row.updatedValue;
+      }
+    }
+
+    state.partValueSpacingCandidates = [];
+    renderPartValuePreview([]);
+    setPartValueStatus(`Updated ${updatedCount} BOMist part value(s).`, "status-ok");
+  } catch (error) {
+    state.partValueSpacingCandidates = rows.slice(updatedCount);
+    setPartValueStatus(`Updated ${updatedCount}; stopped after an error: ${error.message}`, "status-error");
+    renderPartValuePreview(state.partValueSpacingCandidates);
+  } finally {
+    els.scanPartValuesButton.disabled = false;
+  }
 }
 
 async function loadLabels() {
@@ -2020,6 +2208,8 @@ els.repeatByQuantity.addEventListener("change", () => saveAppState());
 els.selectAllItemsButton.addEventListener("click", () => setSelectedItems(() => true));
 els.selectNoItemsButton.addEventListener("click", () => setSelectedItems(() => false));
 els.selectLotItemsButton.addEventListener("click", () => setSelectedItems(item => Boolean(item.lotNumber || item.lotComment)));
+els.scanPartValuesButton.addEventListener("click", scanPartValues);
+els.applyPartValueSpacingButton.addEventListener("click", applyPartValueSpacing);
 els.addCostRowButton.addEventListener("click", () => {
   if (!state.selectedOrder) return;
   saveCurrentCostAllocationDraft({ persist: false });
