@@ -6,7 +6,7 @@ Local web app for working with the BOMist API. The first implemented workflow in
 - showing the items of the selected order,
 - distributing invoice-level extra costs across order items,
 - preparing a shared print selection from one or more orders,
-- normalizing part values by inserting a space between the number and unit and adding ohm units when missing,
+- normalizing part values by inserting a space between the number and unit, adding ohm units when missing, and normalizing the micro symbol,
 - creating BOMist label trees from pasted label paths.
 
 The main navigation separates order workflows, part-focused tools, label tools, and settings. The `Orders` workspace contains purchase-order loading, cost distribution, and print selection. The `Parts` workspace contains tools that operate directly on parts. The `Labels` workspace contains global label tools such as label path creation.
@@ -52,7 +52,7 @@ Draft cost rows and invoice-only items are stored in browser state per order whi
 
 ## Part Value Normalization
 
-In the `Parts` workspace, use `Normalize part values` to scan all parts and preview values where the numeric value touches a recognized unit, a resistance value uses compact decimal notation, or a resistance value is missing the ohm symbol. Applying the preview updates only the BOMist part `value` field, changing examples such as `10kΩ`, `4.7uF`, `6.3V`, `4k7`, `10 k`, and `20` to `10 kΩ`, `4.7 uF`, `6.3 V`, `4.7 kΩ`, `10 kΩ`, and `20 Ω`.
+In the `Parts` workspace, use `Normalize part values` to scan all parts and preview values where the numeric value touches a recognized unit, the micro prefix is written as `u`, a resistance value uses compact decimal notation, or a resistance value is missing the ohm symbol. Applying the preview updates only the BOMist part `value` field, changing examples such as `10kΩ`, `4.7uF`, `6.3V`, `4k7`, `10 k`, and `20` to `10 kΩ`, `4.7 µF`, `6.3 V`, `4.7 kΩ`, `10 kΩ`, and `20 Ω`.
 
 ## Label Printing
 

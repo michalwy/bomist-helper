@@ -431,6 +431,7 @@ function normalizePartValueSpacing(value) {
   if (!text) return "";
 
   const numericPattern = "[+-]?(?:\\d+(?:[.,]\\d+)?|[.,]\\d+|\\d+\\/\\d+)";
+  const normalizeUnitSymbol = unit => unit.replace(/^[uμ]/u, "µ");
   const resistorDecimalMatch = text.match(/^([+-]?\d+)([RrKkMGT])(\d+)$/u);
   if (resistorDecimalMatch) {
     const prefix = resistorDecimalMatch[2].toUpperCase();
@@ -450,14 +451,14 @@ function normalizePartValueSpacing(value) {
   const numericOnlyMatch = text.match(new RegExp(`^(${numericPattern})$`, "u"));
   if (numericOnlyMatch) return `${numericOnlyMatch[1]} Ω`;
 
-  const match = text.match(/^([+-]?(?:\d+(?:[.,]\d+)?|[.,]\d+|\d+\/\d+))([^\d\s].*)$/u);
+  const match = text.match(new RegExp(`^(${numericPattern})\\s*([^\\d\\s].*)$`, "u"));
   if (!match) return text;
 
   const unit = match[2];
   const knownUnitPattern = /^(?:[pnumµμkKMGT]?Ω|[pnumµμkKMGT]?(?:F|H|V|A|W|Hz|R|Ohm|ohm|m|s|B|b)(?:\b|$))/u;
   if (!knownUnitPattern.test(unit)) return text;
 
-  return `${match[1]} ${unit}`;
+  return `${match[1]} ${normalizeUnitSymbol(unit)}`;
 }
 
 function formatLabels(...values) {

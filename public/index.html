@@ -135,13 +135,13 @@
               <div class="subsection-header">
                 <div>
                   <h2>Normalize part values</h2>
-                  <p class="hint">Find part values that need unit spacing or a missing ohm unit, then preview the BOMist updates.</p>
+                  <p class="hint">Find part values that need unit spacing, a missing ohm unit, or a normalized micro symbol, then preview the BOMist updates.</p>
                 </div>
                 <button id="scanPartValuesButton" class="secondary-button" type="button">Scan parts</button>
               </div>
 
               <div id="partValuePreview" class="part-value-preview">
-                <p class="hint">Scan parts to preview values such as 10kΩ → 10 kΩ, 4k7 → 4.7 kΩ, 10 k → 10 kΩ, and 20 → 20 Ω before updating BOMist.</p>
+                <p class="hint">Scan parts to preview values such as 10kΩ → 10 kΩ, 4.7uF → 4.7 µF, 4k7 → 4.7 kΩ, and 20 → 20 Ω before updating BOMist.</p>
               </div>
               <button id="applyPartValueSpacingButton" class="primary-button" type="button" disabled>Update BOMist parts</button>
               <p id="partValueStatus" class="hint" aria-live="polite"></p>

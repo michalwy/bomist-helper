@@ -11,7 +11,7 @@ Current main workflow:
 - load its items,
 - enrich item rows with part data,
 - distribute invoice-level additional costs across BOMist order items while letting invoice-only item values participate in the proportional split and persisting allocation metadata in a BOMist document,
-- normalize part values by adding a space between the number and recognized unit and by adding an ohm unit when it is missing,
+- normalize part values by adding a space between the number and recognized unit, adding an ohm unit when it is missing, and changing micro prefix `u` to `µ`,
 - choose which item rows from one or more orders should produce labels,
 - clear the shared print selection when needed,
 - print one label per selected item from the shared selection, optionally repeated by quantity,
