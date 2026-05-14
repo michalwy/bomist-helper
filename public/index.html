@@ -9,112 +9,160 @@
   <body>
     <div class="app-shell">
       <header class="topbar">
-        <div>
+        <div class="brand-block">
           <h1>BOMist Helper</h1>
           <p id="connectionStatus">Checking BOMist connection...</p>
         </div>
+        <nav class="main-nav" aria-label="Workspace">
+          <button class="nav-tab active" type="button" data-workspace-target="ordersWorkspace" aria-pressed="true">Orders</button>
+          <button class="nav-tab" type="button" data-workspace-target="partsWorkspace" aria-pressed="false">Parts</button>
+          <button class="nav-tab" type="button" data-workspace-target="labelsWorkspace" aria-pressed="false">Labels</button>
+        </nav>
         <div class="topbar-actions">
           <button id="refreshButton" class="icon-button" title="Refresh data">⟳</button>
           <button id="clearBasketButton" class="secondary-button" type="button" disabled>Clear basket</button>
           <button id="printButton" class="primary-button" disabled>Print labels</button>
+          <button class="secondary-button" type="button" data-workspace-target="settingsWorkspace">Settings</button>
         </div>
       </header>
 
-      <main class="workspace">
-        <aside class="sidebar">
-          <section class="panel">
-            <div class="panel-header">
-              <h2>Orders</h2>
-              <span id="ordersCount">0</span>
-            </div>
-            <input id="orderSearch" class="search-input" type="search" placeholder="Filter list">
-            <div id="ordersList" class="orders-list" aria-live="polite"></div>
-          </section>
-        </aside>
-
-        <section class="details">
-          <div id="emptyState" class="empty-state">
-            <h2>Select an order</h2>
-            <p>Choose items from one or more orders, then print all selected labels together.</p>
-          </div>
-
-          <div id="orderDetails" class="order-details hidden">
-            <div class="details-header">
-              <div>
-                <p class="eyebrow">Selected order</p>
-                <h2 id="selectedOrderTitle"></h2>
-                <p id="selectedOrderMeta"></p>
+      <main>
+        <section id="ordersWorkspace" class="workspace workspace-orders" data-workspace>
+          <aside class="sidebar">
+            <section class="panel">
+              <div class="panel-header">
+                <h2>Orders</h2>
+                <span id="ordersCount">0</span>
               </div>
-              <div class="print-options">
-                <label class="checkbox-label">
-                  <input id="repeatByQuantity" type="checkbox">
-                  Repeat by quantity
-                </label>
-                <div class="selection-tools" aria-label="Label item selection">
-                  <span id="selectedItemsCount">0 selected here, 0 total</span>
-                  <div class="selection-actions">
-                    <button id="selectAllItemsButton" class="text-button" type="button">All</button>
-                    <button id="selectNoItemsButton" class="text-button" type="button">None</button>
-                    <button id="selectLotItemsButton" class="text-button" type="button">With LOT</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th class="select-column">Print</th>
-                    <th>LP</th>
-                    <th>Catalog number</th>
-                    <th class="numeric">Quantity</th>
-                    <th class="numeric">Price</th>
-                    <th class="numeric">Value</th>
-                    <th>LOT</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody id="itemsTable"></tbody>
-              </table>
-            </div>
-
-            <section id="costAllocationPanel" class="cost-allocation-panel">
-              <div class="subsection-header">
-                <div>
-                  <h3>Distribute additional costs</h3>
-                  <p class="hint">Extra costs are split proportionally by item value. Invoice-only rows participate in the split but are not saved to BOMist.</p>
-                </div>
-                <button id="applyCostAllocationButton" class="primary-button" type="button" disabled>Update BOMist items</button>
-              </div>
-
-              <div class="allocation-grid">
-                <section class="allocation-block">
-                  <div class="compact-header">
-                    <h4>Additional costs</h4>
-                    <button id="addCostRowButton" class="text-button" type="button">Add cost</button>
-                  </div>
-                  <div id="costRows" class="allocation-rows"></div>
-                </section>
-
-                <section class="allocation-block">
-                  <div class="compact-header">
-                    <h4>Invoice-only items</h4>
-                    <button id="addExternalItemRowButton" class="text-button" type="button">Add item</button>
-                  </div>
-                  <div id="externalItemRows" class="allocation-rows"></div>
-                </section>
-              </div>
-
-              <div id="allocationSummary" class="allocation-summary"></div>
-              <div id="allocationPreview" class="allocation-preview"></div>
-              <p id="costAllocationStatus" class="hint" aria-live="polite"></p>
+              <input id="orderSearch" class="search-input" type="search" placeholder="Filter list">
+              <div id="ordersList" class="orders-list" aria-live="polite"></div>
             </section>
-          </div>
+          </aside>
+
+          <section class="details">
+            <div id="emptyState" class="empty-state">
+              <h2>Select an order</h2>
+              <p>Choose items from one or more orders, then print all selected labels together.</p>
+            </div>
+
+            <div id="orderDetails" class="order-details hidden">
+              <div class="details-header">
+                <div>
+                  <p class="eyebrow">Selected order</p>
+                  <h2 id="selectedOrderTitle"></h2>
+                  <p id="selectedOrderMeta"></p>
+                </div>
+                <div class="print-options">
+                  <label class="checkbox-label">
+                    <input id="repeatByQuantity" type="checkbox">
+                    Repeat by quantity
+                  </label>
+                  <div class="selection-tools" aria-label="Label item selection">
+                    <span id="selectedItemsCount">0 selected here, 0 total</span>
+                    <div class="selection-actions">
+                      <button id="selectAllItemsButton" class="text-button" type="button">All</button>
+                      <button id="selectNoItemsButton" class="text-button" type="button">None</button>
+                      <button id="selectLotItemsButton" class="text-button" type="button">With LOT</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th class="select-column">Print</th>
+                      <th>LP</th>
+                      <th>Catalog number</th>
+                      <th class="numeric">Quantity</th>
+                      <th class="numeric">Price</th>
+                      <th class="numeric">Value</th>
+                      <th>LOT</th>
+                      <th class="status-column">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="itemsTable"></tbody>
+                </table>
+              </div>
+
+              <section id="costAllocationPanel" class="cost-allocation-panel">
+                <div class="subsection-header">
+                  <div>
+                    <h3>Distribute additional costs</h3>
+                    <p class="hint">Extra costs are split proportionally by item value. Invoice-only rows participate in the split but are not saved to BOMist.</p>
+                  </div>
+                  <button id="applyCostAllocationButton" class="primary-button" type="button" disabled>Update BOMist items</button>
+                </div>
+
+                <div class="allocation-grid">
+                  <section class="allocation-block">
+                    <div class="compact-header">
+                      <h4>Additional costs</h4>
+                      <button id="addCostRowButton" class="text-button" type="button">Add cost</button>
+                    </div>
+                    <div id="costRows" class="allocation-rows"></div>
+                  </section>
+
+                  <section class="allocation-block">
+                    <div class="compact-header">
+                      <h4>Invoice-only items</h4>
+                      <button id="addExternalItemRowButton" class="text-button" type="button">Add item</button>
+                    </div>
+                    <div id="externalItemRows" class="allocation-rows"></div>
+                  </section>
+                </div>
+
+                <div id="allocationSummary" class="allocation-summary"></div>
+                <div id="allocationPreview" class="allocation-preview"></div>
+                <p id="costAllocationStatus" class="hint" aria-live="polite"></p>
+              </section>
+            </div>
+          </section>
         </section>
 
-        <aside class="settings">
-          <section class="panel">
+        <section id="partsWorkspace" class="workspace workspace-tools hidden" data-workspace>
+          <aside class="sidebar">
+            <section class="panel">
+              <div class="panel-header">
+                <h2>Part tools</h2>
+              </div>
+              <button class="tool-row active" type="button">Parts workspace</button>
+            </section>
+          </aside>
+          <section class="details">
+            <div class="empty-state">
+              <h2>Parts</h2>
+              <p>Part-focused tools will appear here.</p>
+            </div>
+          </section>
+        </section>
+
+        <section id="labelsWorkspace" class="workspace workspace-tools hidden" data-workspace>
+          <aside class="sidebar">
+            <section class="panel">
+              <div class="panel-header">
+                <h2>Label tools</h2>
+              </div>
+              <button class="tool-row active" type="button">Create label path</button>
+            </section>
+          </aside>
+          <section class="details details-narrow">
+            <section class="panel label-path-panel">
+              <h2>Create label path</h2>
+              <label>
+                Path
+                <textarea id="labelPathInput" rows="7" placeholder="Passives&#10;Potentiometers&#10;Shaft potentiometers"></textarea>
+              </label>
+              <p class="hint">Enter one label per line or separate labels with &gt;. Existing parent labels are reused.</p>
+              <button id="createLabelPathButton" class="primary-button" type="button">Create path</button>
+              <p id="labelPathStatus" class="hint" aria-live="polite"></p>
+            </section>
+          </section>
+        </section>
+
+        <section id="settingsWorkspace" class="workspace workspace-settings hidden" data-workspace>
+          <section class="panel settings-panel">
             <h2>Integration</h2>
             <label>
               API URL
@@ -123,18 +171,7 @@
             <p class="hint">Endpoint paths follow the BOMist 2.14.x API. Only the local API address is configurable.</p>
             <button id="saveSettingsButton" class="secondary-button">Save settings</button>
           </section>
-
-          <section class="panel label-path-panel">
-            <h2>Create label path</h2>
-            <label>
-              Path
-              <textarea id="labelPathInput" rows="7" placeholder="Passives&#10;Potentiometers&#10;Shaft potentiometers"></textarea>
-            </label>
-            <p class="hint">Enter one label per line or separate labels with &gt;. Existing parent labels are reused.</p>
-            <button id="createLabelPathButton" class="primary-button" type="button">Create path</button>
-            <p id="labelPathStatus" class="hint" aria-live="polite"></p>
-          </section>
-        </aside>
+        </section>
       </main>
     </div>
 

@@ -8,6 +8,8 @@ Local web app for working with the BOMist API. The first implemented workflow in
 - preparing a shared print selection from one or more orders,
 - creating BOMist label trees from pasted label paths.
 
+The main navigation separates order workflows, part-focused tools, label tools, and settings. The `Orders` workspace contains purchase-order loading, cost distribution, and print selection. The `Parts` workspace is reserved for tools that operate directly on parts. The `Labels` workspace contains global label tools such as label path creation.
+
 ## Run Locally
 
 1. In BOMist, enable the local API in `Settings > API`.
@@ -35,7 +37,7 @@ The app uses these BOMist 2.14.x endpoints:
 - labels for display and path creation: `GET /labels?limit=5000`
 - label creation: `POST /labels`
 
-The `Integration` panel lets you change the API URL without editing code. Endpoint paths are fixed to the BOMist 2.14.x API shape, and the API URL setting is stored locally in the browser.
+The `Settings` workspace lets you change the API URL without editing code. Endpoint paths are fixed to the BOMist 2.14.x API shape, and the API URL setting is stored locally in the browser.
 
 ## Additional Cost Distribution
 
@@ -51,4 +53,4 @@ After selecting an order, use the item checkboxes to choose which rows should pr
 
 ## Label Path Creation
 
-Use the `Create label path` panel to paste a hierarchy with one label per line or labels separated by `>`. The app trims whitespace from each label name, checks existing labels under the same parent, and creates only missing nodes.
+In the `Labels` workspace, use `Create label path` to paste a hierarchy with one label per line or labels separated by `>`. The app trims whitespace from each label name, checks existing labels under the same parent, and creates only missing nodes.

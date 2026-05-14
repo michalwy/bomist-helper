@@ -40,6 +40,7 @@ const helperDocumentCategory = "BOMist Helper";
 const defaultAppState = {
   selectedOrderId: "",
   orderSearch: "",
+  activeWorkspace: "ordersWorkspace",
   repeatByQuantity: false,
   selectedItemOrderId: "",
   selectedItemKeys: [],
@@ -49,6 +50,8 @@ const defaultAppState = {
 
 const els = {
   connectionStatus: document.querySelector("#connectionStatus"),
+  workspaceTriggers: document.querySelectorAll("[data-workspace-target]"),
+  workspaces: document.querySelectorAll("[data-workspace]"),
   refreshButton: document.querySelector("#refreshButton"),
   clearBasketButton: document.querySelector("#clearBasketButton"),
   printButton: document.querySelector("#printButton"),
@@ -179,9 +182,11 @@ function serializeCostAllocationMap() {
 function getCurrentAppState() {
   const selectedOrderId = state.selectedOrder ? orderIdString(state.selectedOrder) : "";
   const selectedItemKeysByOrderId = serializeSelectionMap();
+  const activeWorkspace = document.querySelector("[data-workspace]:not(.hidden)")?.id || defaultAppState.activeWorkspace;
   return {
     selectedOrderId,
     orderSearch: els.orderSearch.value,
+    activeWorkspace,
     repeatByQuantity: els.repeatByQuantity.checked,
     selectedItemOrderId: selectedOrderId,
     selectedItemKeys: selectedOrderId ? [...(state.selectedItemKeysByOrderId.get(selectedOrderId) || new Set())] : [],
@@ -199,6 +204,26 @@ function applyAppState(appState) {
   els.repeatByQuantity.checked = Boolean(appState.repeatByQuantity);
   state.selectedItemKeysByOrderId = loadPersistedSelectionMap(appState);
   state.costAllocationByOrderId = loadPersistedCostAllocationMap(appState);
+  showWorkspace(appState.activeWorkspace || defaultAppState.activeWorkspace, { persist: false });
+}
+
+function showWorkspace(workspaceId, { persist = true } = {}) {
+  const target = document.getElementById(workspaceId) || document.getElementById(defaultAppState.activeWorkspace);
+  if (!target) return;
+
+  els.workspaces.forEach(workspace => {
+    workspace.classList.toggle("hidden", workspace !== target);
+  });
+
+  els.workspaceTriggers.forEach(trigger => {
+    const active = trigger.dataset.workspaceTarget === target.id;
+    trigger.classList.toggle("active", active);
+    if (trigger.classList.contains("nav-tab")) {
+      trigger.setAttribute("aria-pressed", active ? "true" : "false");
+    }
+  });
+
+  if (persist) saveAppState();
 }
 
 function applySettings(settings) {
@@ -442,6 +467,23 @@ function orderStatusLabel(order) {
 
 function normalizeStatusKey(status) {
   return String(status || "No status").trim().toLowerCase() || "no status";
+}
+
+function statusTone(status) {
+  const key = normalizeStatusKey(status);
+
+  if (key === "no status" || key === "-") return "muted";
+  if (key.includes("cancel") || key.includes("reject") || key.includes("void")) return "danger";
+  if (key.includes("partial") || key.includes("pending") || key.includes("draft")) return "warn";
+  if (key.includes("received") || key.includes("complete") || key.includes("closed") || key.includes("done")) return "success";
+  if (key.includes("order") || key.includes("progress") || key.includes("processing")) return "info";
+  if (key.includes("open")) return "open";
+  return "neutral";
+}
+
+function statusChipHtml(status) {
+  const label = displayValue(status) || "No status";
+  return `<span class="status-chip status-chip-${statusTone(label)}">${escapeHtml(label)}</span>`;
 }
 
 function isStatusGroupExpanded(statusKey) {
@@ -1180,7 +1222,7 @@ function renderOrders() {
         <button class="order-status-toggle" type="button" data-status-key="${escapeHtml(group.key)}" aria-expanded="${expanded}">
           <span>
             <span class="order-status-arrow" aria-hidden="true">${expanded ? "▾" : "▸"}</span>
-            <strong>${escapeHtml(group.label)}</strong>
+            ${statusChipHtml(group.label)}
           </span>
           <span class="order-status-count">${group.orders.length}</span>
         </button>
@@ -1270,7 +1312,7 @@ function renderDetails(order) {
       <td class="numeric">${escapeHtml(item.price || "-")}</td>
       <td class="numeric">${escapeHtml(item.value || "-")}</td>
       <td><span class="lot-info"><strong>${escapeHtml(item.lotNumber || "-")}</strong>${item.lotComment ? `<small>${escapeHtml(item.lotComment)}</small>` : ""}</span></td>
-      <td>${escapeHtml(item.status || "-")}</td>
+      <td class="status-column">${statusChipHtml(item.status)}</td>
     </tr>
   `).join("");
   updateSelectionSummary();
@@ -1970,6 +2012,9 @@ els.refreshButton.addEventListener("click", () => {
 });
 els.clearBasketButton.addEventListener("click", clearPrintBasket);
 els.printButton.addEventListener("click", printLabels);
+els.workspaceTriggers.forEach(trigger => {
+  trigger.addEventListener("click", () => showWorkspace(trigger.dataset.workspaceTarget));
+});
 els.orderSearch.addEventListener("input", filterOrders);
 els.repeatByQuantity.addEventListener("change", () => saveAppState());
 els.selectAllItemsButton.addEventListener("click", () => setSelectedItems(() => true));

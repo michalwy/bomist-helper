@@ -42,9 +42,9 @@ button {
 }
 
 .topbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto minmax(260px, 1fr);
   align-items: center;
-  justify-content: space-between;
   gap: 24px;
   padding: 20px 28px;
   border-bottom: 1px solid var(--line);
@@ -66,9 +66,42 @@ button {
   color: var(--muted);
 }
 
+.brand-block {
+  min-width: 0;
+}
+
+.main-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-self: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+
+.nav-tab {
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.nav-tab:hover,
+.nav-tab.active {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 1px 4px rgba(20, 31, 43, 0.08);
+}
+
 .topbar-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 10px;
 }
 
@@ -104,6 +137,11 @@ button {
   color: var(--ink);
 }
 
+.secondary-button.active {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+
 .icon-button {
   width: 38px;
   border: 1px solid var(--line);
@@ -114,9 +152,17 @@ button {
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr) minmax(270px, 320px);
   gap: 18px;
   padding: 18px;
+}
+
+.workspace-orders,
+.workspace-tools {
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+}
+
+.workspace-settings {
+  grid-template-columns: minmax(0, 520px);
 }
 
 .panel,
@@ -135,6 +181,10 @@ button {
   display: grid;
   align-content: start;
   gap: 18px;
+}
+
+.settings-panel {
+  width: min(100%, 520px);
 }
 
 .panel-header {
@@ -230,6 +280,63 @@ textarea {
   line-height: 1;
 }
 
+.status-chip {
+  --chip-bg: #f1f5f9;
+  --chip-border: #d7dee5;
+  --chip-text: #475569;
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-height: 24px;
+  padding: 3px 9px;
+  border: 1px solid var(--chip-border);
+  border-radius: 999px;
+  background: var(--chip-bg);
+  color: var(--chip-text);
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.25;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.status-chip-open {
+  --chip-bg: #e8f7f2;
+  --chip-border: #9dd8c8;
+  --chip-text: #0f766e;
+}
+
+.status-chip-success {
+  --chip-bg: #edf7ed;
+  --chip-border: #aed9ae;
+  --chip-text: #2f6f36;
+}
+
+.status-chip-info {
+  --chip-bg: #eaf3ff;
+  --chip-border: #abcaf4;
+  --chip-text: #235a97;
+}
+
+.status-chip-warn {
+  --chip-bg: #fff6df;
+  --chip-border: #e8c46d;
+  --chip-text: #8a5500;
+}
+
+.status-chip-danger {
+  --chip-bg: #ffefed;
+  --chip-border: #efb0aa;
+  --chip-text: #a53228;
+}
+
+.status-chip-muted,
+.status-chip-neutral {
+  --chip-bg: #f4f6f8;
+  --chip-border: #d7dee5;
+  --chip-text: #65727f;
+}
+
 .order-status-count {
   flex: 0 0 auto;
   min-width: 24px;
@@ -260,7 +367,9 @@ textarea {
 }
 
 .order-row:hover,
-.order-row.active {
+.order-row.active,
+.tool-row:hover,
+.tool-row.active {
   border-color: var(--accent);
   background: #edf8f6;
 }
@@ -272,6 +381,19 @@ textarea {
 .order-row > span {
   color: var(--muted);
   font-size: 12px;
+}
+
+.tool-row {
+  width: 100%;
+  min-height: 42px;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 650;
+  text-align: left;
 }
 
 .order-row-title {
@@ -301,6 +423,17 @@ textarea {
 .details {
   min-height: calc(100vh - 118px);
   overflow: hidden;
+}
+
+.details-narrow {
+  display: grid;
+  align-content: start;
+  max-width: 720px;
+  min-height: auto;
+  overflow: visible;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .empty-state {
@@ -592,6 +725,19 @@ td {
   white-space: nowrap;
 }
 
+.status-column {
+  width: 84px;
+  min-width: 84px;
+  white-space: nowrap;
+}
+
+.status-column .status-chip {
+  max-width: none;
+  min-height: 22px;
+  padding: 2px 6px;
+  font-size: 10px;
+}
+
 .item-name,
 .lot-info {
   display: grid;
@@ -641,20 +787,37 @@ td {
 }
 
 @media (max-width: 1100px) {
+  .topbar {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .main-nav,
+  .topbar-actions {
+    justify-self: stretch;
+  }
+
+  .main-nav {
+    justify-content: center;
+  }
+
   .workspace {
     grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
   }
 
-  .settings {
-    grid-column: 1 / -1;
+  .workspace-settings {
+    grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 760px) {
-  .topbar,
   .details-header {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .topbar-actions {
+    flex-wrap: wrap;
   }
 
   .workspace {
